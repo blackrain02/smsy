@@ -1,34 +1,35 @@
 package com.binacity.spamguard.ui.util
 
+import android.text.format.DateUtils as AndroidDateUtils
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 object DateUtils {
+    private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+    private val monthDayFormat = SimpleDateFormat("MMM d", Locale.ENGLISH)
+    private val yearFormat = SimpleDateFormat("MM/dd/yy", Locale.ENGLISH)
+
+    @Synchronized
     fun formatConversationDate(timestamp: Long): String {
         if (timestamp <= 0) return ""
-        val now = Calendar.getInstance()
-        val msgTime = Calendar.getInstance().apply { timeInMillis = timestamp }
+        val now = System.currentTimeMillis()
+        val diff = now - timestamp
+        val isToday = AndroidDateUtils.isToday(timestamp)
+        val isYesterday = !isToday && diff < 2 * 86_400_000L && AndroidDateUtils.isToday(timestamp + 86_400_000L)
 
+        val dateObj = Date(timestamp)
         return when {
-            now.get(Calendar.YEAR) == msgTime.get(Calendar.YEAR) &&
-            now.get(Calendar.DAY_OF_YEAR) == msgTime.get(Calendar.DAY_OF_YEAR) -> {
-                SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
-            }
-            now.get(Calendar.YEAR) == msgTime.get(Calendar.YEAR) &&
-            now.get(Calendar.DAY_OF_YEAR) - msgTime.get(Calendar.DAY_OF_YEAR) == 1 -> {
-                "Yesterday"
-            }
-            now.get(Calendar.YEAR) == msgTime.get(Calendar.YEAR) -> {
-                SimpleDateFormat("MMM d", Locale.ENGLISH).format(Date(timestamp))
-            }
-            else -> {
-                SimpleDateFormat("MM/dd/yy", Locale.ENGLISH).format(Date(timestamp))
-            }
+            isToday -> timeFormat.format(dateObj)
+            isYesterday -> "Yesterday"
+            diff < 31536000000L -> monthDayFormat.format(dateObj)
+            else -> yearFormat.format(dateObj)
         }
     }
 
+    @Synchronized
     fun formatMessageTime(timestamp: Long): String {
         if (timestamp <= 0) return ""
-        return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
+        return timeFormat.format(Date(timestamp))
     }
 }

@@ -28,6 +28,16 @@ class SpamRepository(context: Context) {
         spamDao.insert(entity)
     }
 
+    suspend fun quarantineMessage(sender: String, body: String, timestamp: Long, probability: Float = 1.0f): Long = withContext(Dispatchers.IO) {
+        val entity = SpamMessageEntity(
+            sender = sender,
+            body = body,
+            timestamp = timestamp,
+            spamProbability = probability
+        )
+        spamDao.insert(entity)
+    }
+
     suspend fun deleteSpam(id: Long) = withContext(Dispatchers.IO) {
         spamDao.deleteById(id)
     }

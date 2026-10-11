@@ -117,6 +117,14 @@ class MainActivity : ComponentActivity() {
                                     cachedConversations = conversationList,
                                     onConversationsLoaded = { conversationList = it },
                                     onConversationClick = { conv ->
+                                        smsRepository.markThreadAsReadAsync(conv.threadId, conv.address, conv.mergedAddresses, conv.aliasId)
+                                        conversationList = conversationList.map {
+                                            if (it.address == conv.address || (conv.aliasId != null && it.aliasId == conv.aliasId)) {
+                                                it.copy(unreadCount = 0)
+                                            } else {
+                                                it
+                                            }
+                                        }
                                         currentScreen = Screen.Chat(conv.threadId, conv.address, conv.contactName, conv.mergedAddresses)
                                     }
                                 )

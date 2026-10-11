@@ -46,6 +46,8 @@ import com.binacity.spamguard.data.repository.ScanProgress
 import com.binacity.spamguard.data.repository.SmsRepository
 import com.binacity.spamguard.data.repository.SpamRepository
 import com.binacity.spamguard.ui.util.DateUtils
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -79,6 +81,7 @@ fun ConversationListScreen(
     var finalResult by remember { mutableStateOf<ScanProgress?>(null) }
     var showRestrictedHelpDialog by remember { mutableStateOf(false) }
     var conversationToDelete by remember { mutableStateOf<Conversation?>(null) }
+    var conversationToSpam by remember { mutableStateOf<Conversation?>(null) }
     var selectedConversationForAction by remember { mutableStateOf<Conversation?>(null) }
     var conversationToMerge by remember { mutableStateOf<Conversation?>(null) }
     val scope = rememberCoroutineScope()
@@ -131,12 +134,17 @@ fun ConversationListScreen(
         }
     }
 
-    // لیسنر بلادرنگ تغییرات پیامک‌ها در سیستم‌عامل برای همگام‌سازی فوری تعداد خوانده‌نشده
+    // لیسنر بلادرنگ تغییرات پیامک‌ها در سیستم‌عامل با دی‌بانس ۳۵۰ میلی‌ثانیه جهت حذف لگ اسکرول
     DisposableEffect(Unit) {
+        var debounceJob: Job? = null
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
                 if (hasSmsPermission) {
-                    refreshList()
+                    debounceJob?.cancel()
+                    debounceJob = scope.launch {
+                        delay(350)
+                        refreshList()
+                    }
                 }
             }
         }
@@ -146,6 +154,7 @@ fun ConversationListScreen(
             e.printStackTrace()
         }
         onDispose {
+            debounceJob?.cancel()
             try {
                 context.contentResolver.unregisterContentObserver(observer)
             } catch (e: Exception) {
@@ -469,6 +478,40 @@ fun ConversationListScreen(
                         modifier = Modifier.padding(vertical = 4.dp)
                     )
 
+                    // گزینه انتقال به اسپم (قرنطینه)
+                    TextButton(
+                        onClick = {
+                            conversationToSpam = target
+                            selectedConversationForAction = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 12.dp, horizontal = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Shield,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                "Move to Spam (Quarantine)",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
                     TextButton(
                         onClick = {
                             conversationToDelete = target
@@ -665,6 +708,43 @@ fun ConversationListScreen(
             },
             dismissButton = {
                 TextButton(onClick = { conversationToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // دیالوگ تایید انتقال به اسپم (قرنطینه)
+    if (conversationToSpam != null) {
+        val target = conversationToSpam!!
+        AlertDialog(
+            onDismissRequest = { conversationToSpam = null },
+            icon = { Icon(Icons.Default.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Move to Spam?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("All messages from ${target.contactName ?: target.address} will be moved to quarantine and deleted from inbox.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val toSpam = target
+                        conversationToSpam = null
+                        scope.launch {
+                            smsRepository.quarantineConversation(
+                                threadId = toSpam.threadId,
+                                address = toSpam.address,
+                                mergedAddresses = toSpam.mergedAddresses,
+                                spamRepository = spamRepository
+                            )
+                            refreshList()
+                        }
+                    }
+                ) {
+                    Text("Move to Spam")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { conversationToSpam = null }) {
                     Text("Cancel")
                 }
             }
@@ -881,8 +961,11 @@ fun ConversationItem(
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                 }
+                val formattedDate = remember(conversation.date) {
+                    DateUtils.formatConversationDate(conversation.date)
+                }
                 Text(
-                    text = DateUtils.formatConversationDate(conversation.date),
+                    text = formattedDate,
                     fontSize = 11.sp,
                     color = if (isUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal

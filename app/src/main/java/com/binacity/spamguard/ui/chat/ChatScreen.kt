@@ -108,10 +108,8 @@ fun ChatScreen(
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-            // تضمین علامت‌گذاری خوانده‌شده هنگام خروج از صفحه چت
-            scope.launch {
-                smsRepository.markThreadAsRead(threadId, address, mergedAddresses)
-            }
+            // تضمین علامت‌گذاری خوانده‌شده هنگام خروج از صفحه چت با CoroutineScope پایدار ریپازیتوری
+            smsRepository.markThreadAsReadAsync(threadId, address, mergedAddresses)
         }
     }
 
