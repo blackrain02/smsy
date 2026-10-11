@@ -32,15 +32,16 @@ class SpamRepository(context: Context) {
         spamDao.deleteById(id)
     }
 
+    suspend fun deleteBySender(sender: String) = withContext(Dispatchers.IO) {
+        spamDao.deleteBySender(sender)
+    }
+
     suspend fun deleteAllSpam() = withContext(Dispatchers.IO) {
         spamDao.deleteAll()
     }
 
     /**
-     * بازیابی پیام هرزنامه و آموزش سیستم:
-     * ۱. ذخیره مجدد در پیام‌های رسمی گوشی
-     * ۲. حذف از قرنطینه
-     * ۳. ثبت فرستنده در لیست سفید اختصاصی کاربر جهت یادگیری و عدم تکرار اشتباه
+     * بازیابی تک‌پیام هرزنامه و آموزش سیستم
      */
     suspend fun restoreToInbox(spam: SpamMessageEntity) = withContext(Dispatchers.IO) {
         smsRepository.saveToInbox(spam.sender, spam.body, spam.timestamp, isRead = true)
@@ -49,6 +50,21 @@ class SpamRepository(context: Context) {
         // ثبت در حافظه یادگیری دائمی سیستم
         if (spam.sender.isNotBlank()) {
             userWhitelistDao.insert(UserWhitelistEntity(sender = spam.sender))
+        }
+    }
+
+    /**
+     * بازیابی تمام پیام‌های یک سرشماره و آموزش سیستم
+     */
+    suspend fun restoreSenderToInbox(sender: String) = withContext(Dispatchers.IO) {
+        val messages = spamDao.getMessagesBySender(sender)
+        for (msg in messages) {
+            smsRepository.saveToInbox(msg.sender, msg.body, msg.timestamp, isRead = true)
+        }
+        spamDao.deleteBySender(sender)
+
+        if (sender.isNotBlank()) {
+            userWhitelistDao.insert(UserWhitelistEntity(sender = sender))
         }
     }
 

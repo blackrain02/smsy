@@ -17,6 +17,12 @@ interface SpamMessageDao {
     @Query("DELETE FROM spam_messages WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("DELETE FROM spam_messages WHERE sender = :sender")
+    suspend fun deleteBySender(sender: String)
+
+    @Query("SELECT * FROM spam_messages WHERE sender = :sender ORDER BY timestamp ASC")
+    suspend fun getMessagesBySender(sender: String): List<SpamMessageEntity>
+
     @Query("DELETE FROM spam_messages")
     suspend fun deleteAll()
 

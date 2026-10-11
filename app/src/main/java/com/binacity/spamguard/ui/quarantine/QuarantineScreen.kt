@@ -1,5 +1,6 @@
 package com.binacity.spamguard.ui.quarantine
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,6 +11,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
@@ -28,6 +31,13 @@ import com.binacity.spamguard.data.repository.SpamRepository
 import com.binacity.spamguard.ui.util.DateUtils
 import kotlinx.coroutines.launch
 
+data class SpamSenderGroup(
+    val sender: String,
+    val latestMessage: SpamMessageEntity,
+    val messages: List<SpamMessageEntity>,
+    val count: Int
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuarantineScreen(
@@ -38,9 +48,11 @@ fun QuarantineScreen(
     val scope = rememberCoroutineScope()
     var searchQuery by remember { mutableStateOf("") }
     var showClearAllDialog by remember { mutableStateOf(false) }
+    var senderToDelete by remember { mutableStateOf<SpamSenderGroup?>(null) }
 
-    val filteredList = remember(spamList, searchQuery) {
-        if (searchQuery.isBlank()) {
+    // تجمیع پیامک‌های هرزنامه به تفکیک سرشماره / فرستنده
+    val groupedSenders = remember(spamList, searchQuery) {
+        val filtered = if (searchQuery.isBlank()) {
             spamList
         } else {
             val q = searchQuery.trim().lowercase()
@@ -48,6 +60,18 @@ fun QuarantineScreen(
                 it.sender.lowercase().contains(q) || it.body.lowercase().contains(q)
             }
         }
+
+        filtered.groupBy { it.sender }
+            .map { (sender, msgs) ->
+                val sorted = msgs.sortedByDescending { it.timestamp }
+                SpamSenderGroup(
+                    sender = sender,
+                    latestMessage = sorted.first(),
+                    messages = sorted,
+                    count = msgs.size
+                )
+            }
+            .sortedByDescending { it.latestMessage.timestamp }
     }
 
     Scaffold(
@@ -68,7 +92,7 @@ fun QuarantineScreen(
                             )
                             if (spamList.isNotEmpty()) {
                                 Text(
-                                    "${spamList.size} spam messages protected",
+                                    "${groupedSenders.size} senders (${spamList.size} messages quarantined)",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -115,7 +139,7 @@ fun QuarantineScreen(
                             TextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
-                                placeholder = { Text("Search quarantined SMS...", fontSize = 13.sp) },
+                                placeholder = { Text("Search sender or message...", fontSize = 13.sp) },
                                 modifier = Modifier.weight(1f),
                                 singleLine = true,
                                 colors = TextFieldDefaults.colors(
@@ -175,7 +199,7 @@ fun QuarantineScreen(
                     )
                 }
             }
-        } else if (filteredList.isEmpty()) {
+        } else if (groupedSenders.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -194,11 +218,17 @@ fun QuarantineScreen(
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                items(filteredList, key = { it.id }) { item ->
-                    MinimalSpamItem(
-                        item = item,
-                        onRestore = { scope.launch { spamRepository.restoreToInbox(item) } },
-                        onDelete = { scope.launch { spamRepository.deleteSpam(item.id) } }
+                items(groupedSenders, key = { it.sender }) { group ->
+                    SenderSpamGroupItem(
+                        group = group,
+                        onRestoreSender = {
+                            scope.launch {
+                                spamRepository.restoreSenderToInbox(group.sender)
+                            }
+                        },
+                        onDeleteSender = {
+                            senderToDelete = group
+                        }
                     )
                     HorizontalDivider(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
@@ -209,12 +239,42 @@ fun QuarantineScreen(
         }
     }
 
+    // دیالوگ تایید حذف پیام‌های یک سرشماره
+    if (senderToDelete != null) {
+        val target = senderToDelete!!
+        AlertDialog(
+            onDismissRequest = { senderToDelete = null },
+            title = { Text("Delete All Messages?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("Delete all ${target.count} spam messages from ${target.sender}? This action cannot be undone.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            spamRepository.deleteBySender(target.sender)
+                            senderToDelete = null
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete All (${target.count})")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { senderToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     // دیالوگ تایید پاکسازی کلی
     if (showClearAllDialog) {
         AlertDialog(
             onDismissRequest = { showClearAllDialog = false },
             title = { Text("Clear All Quarantine?", fontWeight = FontWeight.Bold) },
-            text = { Text("Permanently delete all ${spamList.size} quarantined messages?") },
+            text = { Text("Permanently delete all ${spamList.size} quarantined messages from all senders?") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -238,10 +298,10 @@ fun QuarantineScreen(
 }
 
 @Composable
-fun MinimalSpamItem(
-    item: SpamMessageEntity,
-    onRestore: () -> Unit,
-    onDelete: () -> Unit
+fun SenderSpamGroupItem(
+    group: SpamSenderGroup,
+    onRestoreSender: () -> Unit,
+    onDeleteSender: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -261,14 +321,35 @@ fun MinimalSpamItem(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = item.sender,
+                    text = group.sender,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 15.sp,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+
+                if (group.count > 1) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                MaterialTheme.colorScheme.secondaryContainer,
+                                RoundedCornerShape(10.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "${group.count}",
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.width(8.dp))
+
                 Box(
                     modifier = Modifier
                         .background(
@@ -278,7 +359,7 @@ fun MinimalSpamItem(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "${(item.spamProbability * 100).toInt()}% spam",
+                        text = "${(group.latestMessage.spamProbability * 100).toInt()}% spam",
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
@@ -286,17 +367,29 @@ fun MinimalSpamItem(
                 }
             }
 
-            Text(
-                text = DateUtils.formatConversationDate(item.timestamp),
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.outline
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = DateUtils.formatConversationDate(group.latestMessage.timestamp),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                if (group.count > 1) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(6.dp))
 
+        // نمایش پیام شاخص اخیر
         Text(
-            text = item.body,
+            text = group.latestMessage.body,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 13.sp,
             lineHeight = 19.sp,
@@ -304,6 +397,66 @@ fun MinimalSpamItem(
             overflow = TextOverflow.Ellipsis,
             style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
         )
+
+        // در صورت باز شدن و داشتن بیش از یک پیام، سایر پیام‌های این سرشماره لیست می‌شوند
+        AnimatedVisibility(visible = expanded && group.count > 1) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp)
+            ) {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Text(
+                    "All messages from this sender (${group.count}):",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+
+                for (idx in group.messages.indices) {
+                    val msg = group.messages[idx]
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "#${idx + 1}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                                Text(
+                                    DateUtils.formatMessageTime(msg.timestamp),
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = msg.body,
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -313,7 +466,7 @@ fun MinimalSpamItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             FilledTonalButton(
-                onClick = onRestore,
+                onClick = onRestoreSender,
                 shape = RoundedCornerShape(8.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 modifier = Modifier.height(32.dp)
@@ -324,13 +477,17 @@ fun MinimalSpamItem(
                     modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Restore", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (group.count > 1) "Restore All (${group.count})" else "Restore",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
             Spacer(modifier = Modifier.width(8.dp))
 
             IconButton(
-                onClick = onDelete,
+                onClick = onDeleteSender,
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(
