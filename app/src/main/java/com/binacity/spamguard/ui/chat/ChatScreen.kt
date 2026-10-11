@@ -82,18 +82,18 @@ fun ChatScreen(
     val listState = rememberLazyListState()
 
     // بارگذاری اولیه پیام‌ها و علامت‌گذاری به عنوان خوانده‌شده
-    LaunchedEffect(threadId) {
-        messages = smsRepository.getMessages(threadId)
-        smsRepository.markThreadAsRead(threadId)
+    LaunchedEffect(threadId, address) {
+        messages = smsRepository.getMessages(threadId, address)
+        smsRepository.markThreadAsRead(threadId, address)
     }
 
     // لیسنر بلادرنگ برای دریافت پیامک‌های جدید به محض ورود به سیستم‌عامل
-    DisposableEffect(threadId) {
+    DisposableEffect(threadId, address) {
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
                 scope.launch {
-                    messages = smsRepository.getMessages(threadId)
-                    smsRepository.markThreadAsRead(threadId)
+                    messages = smsRepository.getMessages(threadId, address)
+                    smsRepository.markThreadAsRead(threadId, address)
                 }
             }
         }
@@ -222,7 +222,7 @@ fun ChatScreen(
                                 scope.launch {
                                     val success = smsRepository.sendMessage(address, textToSend)
                                     if (success) {
-                                        messages = smsRepository.getMessages(threadId)
+                                        messages = smsRepository.getMessages(threadId, address)
                                     }
                                 }
                             }
@@ -320,7 +320,7 @@ fun ChatScreen(
                         onClick = {
                             scope.launch {
                                 smsRepository.deleteMessage(target.id)
-                                messages = smsRepository.getMessages(threadId)
+                                messages = smsRepository.getMessages(threadId, address)
                                 messageForAction = null
                             }
                         },

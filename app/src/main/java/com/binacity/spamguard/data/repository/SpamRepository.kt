@@ -43,7 +43,7 @@ class SpamRepository(context: Context) {
      * ۳. ثبت فرستنده در لیست سفید اختصاصی کاربر جهت یادگیری و عدم تکرار اشتباه
      */
     suspend fun restoreToInbox(spam: SpamMessageEntity) = withContext(Dispatchers.IO) {
-        smsRepository.saveToInbox(spam.sender, spam.body, spam.timestamp)
+        smsRepository.saveToInbox(spam.sender, spam.body, spam.timestamp, isRead = true)
         spamDao.deleteById(spam.id)
         
         // ثبت در حافظه یادگیری دائمی سیستم

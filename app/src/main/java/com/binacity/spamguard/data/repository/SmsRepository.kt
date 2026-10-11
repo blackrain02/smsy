@@ -10,6 +10,7 @@ import android.provider.Telephony
 import android.telephony.SmsManager
 import androidx.core.content.ContextCompat
 import com.binacity.spamguard.ai.SpamClassifier
+import com.binacity.spamguard.data.model.ContactItem
 import com.binacity.spamguard.data.model.Conversation
 import com.binacity.spamguard.data.model.Message
 import kotlinx.coroutines.Dispatchers
@@ -23,22 +24,30 @@ data class ScanProgress(
 
 class SmsRepository(private val context: Context) {
 
+    private val pinnedPrefs = context.getSharedPreferences("smsy_pinned_threads", Context.MODE_PRIVATE)
+
     /**
      * کش حافظه‌ای سریع برای نگاشت شماره مخاطبین به نام‌ها جهت جلوگیری از افت سرعت UI
      */
     private var cachedContacts: Map<String, String>? = null
+    private var cachedContactList: List<ContactItem>? = null
     private var lastContactCacheTime: Long = 0
 
     /**
      * ذخیره پیامک ورودی در دیتابیس رسمی سیستم‌عامل
+     * با انتساب صریح Thread ID تا از چندگانگی گفتگو و باگ‌های خوانده‌نشده جلوگیری شود.
      */
-    fun saveToInbox(sender: String, body: String, timestamp: Long): Uri? {
+    fun saveToInbox(sender: String, body: String, timestamp: Long, isRead: Boolean = false): Uri? {
         return try {
+            val threadId = getOrCreateThreadId(sender)
             val values = ContentValues().apply {
+                if (threadId > 0) {
+                    put(Telephony.Sms.THREAD_ID, threadId)
+                }
                 put(Telephony.Sms.ADDRESS, sender)
                 put(Telephony.Sms.BODY, body)
                 put(Telephony.Sms.DATE, timestamp)
-                put(Telephony.Sms.READ, 0)
+                put(Telephony.Sms.READ, if (isRead) 1 else 0)
                 put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_INBOX)
             }
             context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values)
@@ -96,14 +105,106 @@ class SmsRepository(private val context: Context) {
         return map
     }
 
-    private fun normalizePhoneNumber(phone: String): String {
+    fun normalizePhoneNumber(phone: String): String {
         val digits = phone.replace(Regex("[^0-9+]"), "")
         return if (digits.length >= 10) digits.takeLast(10) else digits
     }
 
+    fun getConversationKey(address: String): String {
+        val norm = normalizePhoneNumber(address)
+        return if (norm.length >= 7) norm else address.trim().lowercase()
+    }
+
     /**
-     * دریافت لیست گفتگوها با معماری Single-Pass و کش سریع مخاطبین
-     * زمان پردازش کاهش یافته از ۱۲ ثانیه به کمتر از ۱۰۰ میلی‌ثانیه
+     * بررسی وضعیت سنجاق شدن یک گفتگو
+     */
+    fun isPinned(address: String): Boolean {
+        val key = getConversationKey(address)
+        val set = pinnedPrefs.getStringSet("pinned_keys", emptySet()) ?: emptySet()
+        return set.contains(key)
+    }
+
+    /**
+     * تغییر وضعیت سنجاق شدن (Pin/Unpin) یک گفتگو
+     */
+    fun togglePin(address: String): Boolean {
+        val key = getConversationKey(address)
+        val set = pinnedPrefs.getStringSet("pinned_keys", emptySet())?.toMutableSet() ?: mutableSetOf()
+        val newState = if (set.contains(key)) {
+            set.remove(key)
+            false
+        } else {
+            set.add(key)
+            true
+        }
+        pinnedPrefs.edit().putStringSet("pinned_keys", set).apply()
+        return newState
+    }
+
+    private fun getPinnedKeys(): Set<String> {
+        return pinnedPrefs.getStringSet("pinned_keys", emptySet()) ?: emptySet()
+    }
+
+    /**
+     * دریافت لیست مخاطبین گوشی جهت انتخاب در ارسال پیام جدید
+     */
+    fun getContacts(query: String = ""): List<ContactItem> {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return emptyList()
+        }
+
+        val now = System.currentTimeMillis()
+        val contacts: List<ContactItem> = if (cachedContactList != null && (now - lastContactCacheTime) < 60_000) {
+            cachedContactList!!
+        } else {
+            val list = mutableListOf<ContactItem>()
+            val seenNumbers = HashSet<String>()
+            try {
+                val projection = arrayOf(
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                    ContactsContract.CommonDataKinds.Phone.NUMBER
+                )
+                val cursor = context.contentResolver.query(
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    projection,
+                    null,
+                    null,
+                    "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC"
+                )
+                cursor?.use {
+                    val nameCol = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                    val numCol = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                    while (it.moveToNext()) {
+                        val name = if (nameCol != -1) it.getString(nameCol) ?: "" else ""
+                        val num = if (numCol != -1) it.getString(numCol) ?: "" else ""
+                        val cleanNum = num.replace(" ", "").replace("-", "")
+                        if (cleanNum.isNotBlank() && !seenNumbers.contains(cleanNum)) {
+                            seenNumbers.add(cleanNum)
+                            list.add(ContactItem(name = name.ifBlank { num }, number = cleanNum))
+                        }
+                    }
+                }
+                cachedContactList = list
+                lastContactCacheTime = now
+                list
+            } catch (e: Throwable) {
+                e.printStackTrace()
+                emptyList()
+            }
+        }
+
+        if (query.isBlank()) {
+            return contacts
+        }
+
+        val q = query.trim().lowercase()
+        return contacts.filter {
+            it.name.lowercase().contains(q) || it.number.contains(q)
+        }
+    }
+
+    /**
+     * دریافت لیست گفتگوها با معماری Single-Pass، کش مخاطبین و رفع باگ گفتگوهای تکراری
      */
     suspend fun getConversations(): List<Conversation> = withContext(Dispatchers.IO) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
@@ -111,12 +212,12 @@ class SmsRepository(private val context: Context) {
         }
 
         val list = mutableListOf<Conversation>()
-        val unreadMap = HashMap<Long, Int>()
-        val seenThreads = HashSet<Long>()
+        val unreadMap = HashMap<String, Int>()
+        val seenSenders = HashSet<String>()
         val contactsMap = getContactCache()
+        val pinnedKeys = getPinnedKeys()
 
         try {
-            // یک کوئری جامع به جای صدها کوئری تکراری در حلقه
             val uri = Telephony.Sms.CONTENT_URI
             val projection = arrayOf(
                 Telephony.Sms.THREAD_ID,
@@ -134,25 +235,27 @@ class SmsRepository(private val context: Context) {
                 val dateCol = it.getColumnIndex(Telephony.Sms.DATE)
                 val readCol = it.getColumnIndex(Telephony.Sms.READ)
 
-                if (threadIdCol == -1) return@use
+                if (threadIdCol == -1 || addressCol == -1) return@use
 
                 while (it.moveToNext()) {
-                    val threadId = it.getLong(threadIdCol)
+                    val address = it.getString(addressCol) ?: "Unknown"
+                    if (address.isBlank()) continue
+
+                    val convKey = getConversationKey(address)
                     val isRead = if (readCol != -1) it.getInt(readCol) == 1 else true
 
-                    // محاسبه تعداد پیام‌های خوانده نشده
                     if (!isRead) {
-                        unreadMap[threadId] = (unreadMap[threadId] ?: 0) + 1
+                        unreadMap[convKey] = (unreadMap[convKey] ?: 0) + 1
                     }
 
-                    // اولین پیام دریافت شده به ازای هر threadId آخرین پیام مکالمه است (به دلیل sort date DESC)
-                    if (!seenThreads.contains(threadId)) {
-                        seenThreads.add(threadId)
-
-                        val address = if (addressCol != -1) it.getString(addressCol) ?: "Unknown" else "Unknown"
+                    // یکتا‌سازی بر اساس کلید شماره/فرستنده برای جلوگیری از تکرار گفتگوها در بازیابی یا تردهای موازی
+                    if (!seenSenders.contains(convKey)) {
+                        seenSenders.add(convKey)
+                        val threadId = it.getLong(threadIdCol)
                         val snippet = if (bodyCol != -1) it.getString(bodyCol) ?: "" else ""
                         val date = if (dateCol != -1) it.getLong(dateCol) else System.currentTimeMillis()
                         val contactName = contactsMap[normalizePhoneNumber(address)]
+                        val isPinned = pinnedKeys.contains(convKey)
 
                         list.add(
                             Conversation(
@@ -161,17 +264,19 @@ class SmsRepository(private val context: Context) {
                                 contactName = contactName,
                                 snippet = snippet,
                                 date = date,
-                                unreadCount = 0 // بعد از پایان حلقه مقادیر خوانده‌نشده تنظیم می‌شود
+                                unreadCount = 0,
+                                isPinned = isPinned
                             )
                         )
                     }
                 }
             }
 
-            // ادغام تعداد خوانده‌نشده‌ها بدون کوئری اضافی
+            // تخصیص مقادیر تجمیعی خوانده‌نشده
             for (i in list.indices) {
                 val conv = list[i]
-                val count = unreadMap[conv.threadId] ?: 0
+                val key = getConversationKey(conv.address)
+                val count = unreadMap[key] ?: 0
                 if (count > 0) {
                     list[i] = conv.copy(unreadCount = count)
                 }
@@ -180,23 +285,35 @@ class SmsRepository(private val context: Context) {
             e.printStackTrace()
         }
 
+        // مرتب‌سازی: سنجاق‌شده‌ها در بالای لیست، سپس ترتیب نزولی تاریخ
+        list.sortWith(compareByDescending<Conversation> { it.isPinned }.thenByDescending { it.date })
         list
     }
 
     /**
      * علامت‌گذاری پیام‌های یک گفتگو به عنوان خوانده‌شده
      */
-    suspend fun markThreadAsRead(threadId: Long) = withContext(Dispatchers.IO) {
+    suspend fun markThreadAsRead(threadId: Long, address: String = "") = withContext(Dispatchers.IO) {
         try {
             val values = ContentValues().apply {
                 put(Telephony.Sms.READ, 1)
             }
-            context.contentResolver.update(
-                Telephony.Sms.Inbox.CONTENT_URI,
-                values,
-                "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.READ} = 0",
-                arrayOf(threadId.toString())
-            )
+            val norm = normalizePhoneNumber(address)
+            if (address.isNotBlank() && norm.length >= 7) {
+                context.contentResolver.update(
+                    Telephony.Sms.Inbox.CONTENT_URI,
+                    values,
+                    "(${Telephony.Sms.THREAD_ID} = ? OR ${Telephony.Sms.ADDRESS} LIKE ?) AND ${Telephony.Sms.READ} = 0",
+                    arrayOf(threadId.toString(), "%$norm")
+                )
+            } else {
+                context.contentResolver.update(
+                    Telephony.Sms.Inbox.CONTENT_URI,
+                    values,
+                    "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.READ} = 0",
+                    arrayOf(threadId.toString())
+                )
+            }
         } catch (e: Throwable) {
             e.printStackTrace()
         }
@@ -205,13 +322,22 @@ class SmsRepository(private val context: Context) {
     /**
      * حذف یک گفتگوی کامل
      */
-    suspend fun deleteConversation(threadId: Long): Boolean = withContext(Dispatchers.IO) {
+    suspend fun deleteConversation(threadId: Long, address: String = ""): Boolean = withContext(Dispatchers.IO) {
         try {
-            val count = context.contentResolver.delete(
-                Telephony.Sms.CONTENT_URI,
-                "${Telephony.Sms.THREAD_ID} = ?",
-                arrayOf(threadId.toString())
-            )
+            val norm = normalizePhoneNumber(address)
+            val count = if (address.isNotBlank() && norm.length >= 7) {
+                context.contentResolver.delete(
+                    Telephony.Sms.CONTENT_URI,
+                    "${Telephony.Sms.THREAD_ID} = ? OR ${Telephony.Sms.ADDRESS} LIKE ?",
+                    arrayOf(threadId.toString(), "%$norm")
+                )
+            } else {
+                context.contentResolver.delete(
+                    Telephony.Sms.CONTENT_URI,
+                    "${Telephony.Sms.THREAD_ID} = ?",
+                    arrayOf(threadId.toString())
+                )
+            }
             count > 0
         } catch (e: Throwable) {
             e.printStackTrace()
@@ -248,14 +374,27 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
-     * دریافت پیام‌های یک گفتگوی مشخص
+     * دریافت پیام‌های یک گفتگوی مشخص با یکپارچه‌سازی تمام تردهای مرتبط با مخاطب
      */
-    suspend fun getMessages(threadId: Long): List<Message> = withContext(Dispatchers.IO) {
+    suspend fun getMessages(threadId: Long, address: String = ""): List<Message> = withContext(Dispatchers.IO) {
         val list = mutableListOf<Message>()
+        val seenMessageIds = HashSet<Long>()
         try {
             val uri = Telephony.Sms.CONTENT_URI
-            val selection = "${Telephony.Sms.THREAD_ID} = ?"
-            val selectionArgs = arrayOf(threadId.toString())
+            val norm = normalizePhoneNumber(address)
+            val selection: String
+            val selectionArgs: Array<String>
+
+            if (address.isNotBlank() && norm.length >= 7) {
+                selection = "${Telephony.Sms.THREAD_ID} = ? OR ${Telephony.Sms.ADDRESS} LIKE ?"
+                selectionArgs = arrayOf(threadId.toString(), "%$norm")
+            } else if (address.isNotBlank()) {
+                selection = "${Telephony.Sms.THREAD_ID} = ? OR ${Telephony.Sms.ADDRESS} = ?"
+                selectionArgs = arrayOf(threadId.toString(), address)
+            } else {
+                selection = "${Telephony.Sms.THREAD_ID} = ?"
+                selectionArgs = arrayOf(threadId.toString())
+            }
 
             val cursor = context.contentResolver.query(uri, null, selection, selectionArgs, "date ASC")
             cursor?.use {
@@ -268,7 +407,10 @@ class SmsRepository(private val context: Context) {
 
                 while (it.moveToNext()) {
                     val id = if (idCol != -1) it.getLong(idCol) else 0L
-                    val address = if (addressCol != -1) it.getString(addressCol) ?: "" else ""
+                    if (id != 0L && seenMessageIds.contains(id)) continue
+                    if (id != 0L) seenMessageIds.add(id)
+
+                    val msgAddress = if (addressCol != -1) it.getString(addressCol) ?: "" else ""
                     val body = if (bodyCol != -1) it.getString(bodyCol) ?: "" else ""
                     val date = if (dateCol != -1) it.getLong(dateCol) else System.currentTimeMillis()
                     val type = if (typeCol != -1) it.getInt(typeCol) else Telephony.Sms.MESSAGE_TYPE_INBOX
@@ -278,7 +420,7 @@ class SmsRepository(private val context: Context) {
                         Message(
                             id = id,
                             threadId = threadId,
-                            address = address,
+                            address = msgAddress,
                             body = body,
                             date = date,
                             isSent = (type == Telephony.Sms.MESSAGE_TYPE_SENT),
@@ -306,8 +448,13 @@ class SmsRepository(private val context: Context) {
                 smsManager.sendTextMessage(address, null, body, null, null)
             }
 
-            // ذخیره در جدول پیام‌های ارسالی
+            val threadId = getOrCreateThreadId(address)
+
+            // ذخیره در جدول پیام‌های ارسالی با انتساب threadId
             val values = ContentValues().apply {
+                if (threadId > 0) {
+                    put(Telephony.Sms.THREAD_ID, threadId)
+                }
                 put(Telephony.Sms.ADDRESS, address)
                 put(Telephony.Sms.BODY, body)
                 put(Telephony.Sms.DATE, System.currentTimeMillis())

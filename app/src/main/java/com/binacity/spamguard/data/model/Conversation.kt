@@ -6,5 +6,6 @@ data class Conversation(
     val contactName: String?,
     val snippet: String,
     val date: Long,
-    val unreadCount: Int
+    val unreadCount: Int,
+    val isPinned: Boolean = false
 )

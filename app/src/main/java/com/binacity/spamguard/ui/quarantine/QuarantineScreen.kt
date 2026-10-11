@@ -1,24 +1,31 @@
 package com.binacity.spamguard.ui.quarantine
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.binacity.spamguard.data.local.SpamMessageEntity
 import com.binacity.spamguard.data.repository.SpamRepository
+import com.binacity.spamguard.ui.util.DateUtils
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -29,26 +36,113 @@ fun QuarantineScreen(
 ) {
     val spamList by spamRepository.getAllSpam().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
+    var searchQuery by remember { mutableStateOf("") }
+    var showClearAllDialog by remember { mutableStateOf(false) }
+
+    val filteredList = remember(spamList, searchQuery) {
+        if (searchQuery.isBlank()) {
+            spamList
+        } else {
+            val q = searchQuery.trim().lowercase()
+            spamList.filter {
+                it.sender.lowercase().contains(q) || it.body.lowercase().contains(q)
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Quarantine", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                actions = {
-                    if (spamList.isNotEmpty()) {
-                        IconButton(onClick = { scope.launch { spamRepository.deleteAllSpam() } }) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Clear All",
-                                tint = MaterialTheme.colorScheme.error
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+            ) {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                "Quarantine",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
+                            if (spamList.isNotEmpty()) {
+                                Text(
+                                    "${spamList.size} spam messages protected",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    actions = {
+                        if (spamList.isNotEmpty()) {
+                            IconButton(onClick = { showClearAllDialog = true }) {
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    contentDescription = "Clear All",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
                     }
+                )
+
+                if (spamList.isNotEmpty()) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                placeholder = { Text("Search quarantined SMS...", fontSize = 13.sp) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                colors = TextFieldDefaults.colors(
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent
+                                )
+                            )
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { searchQuery = "" },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Clear",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
                 }
-            )
+            }
         },
         modifier = modifier
     ) { padding ->
@@ -63,108 +157,188 @@ fun QuarantineScreen(
                     Icon(
                         Icons.Default.Shield,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(64.dp)
+                        tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                        modifier = Modifier.size(56.dp)
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
                         "No spam in quarantine",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 15.sp
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Incoming promotional SMS will be isolated here",
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 12.sp
                     )
                 }
+            }
+        } else if (filteredList.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "No messages matching '$searchQuery'",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp
+                )
             }
         } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(spamList, key = { it.id }) { item ->
-                    SpamItemCard(
+                items(filteredList, key = { it.id }) { item ->
+                    MinimalSpamItem(
                         item = item,
                         onRestore = { scope.launch { spamRepository.restoreToInbox(item) } },
                         onDelete = { scope.launch { spamRepository.deleteSpam(item.id) } }
+                    )
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
+                        thickness = 0.5.dp
                     )
                 }
             }
         }
     }
+
+    // دیالوگ تایید پاکسازی کلی
+    if (showClearAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAllDialog = false },
+            title = { Text("Clear All Quarantine?", fontWeight = FontWeight.Bold) },
+            text = { Text("Permanently delete all ${spamList.size} quarantined messages?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            spamRepository.deleteAllSpam()
+                            showClearAllDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
-fun SpamItemCard(
+fun MinimalSpamItem(
     item: SpamMessageEntity,
     onRestore: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth()
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded }
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
             ) {
                 Text(
                     text = item.sender,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 15.sp,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
                         .background(
-                            MaterialTheme.colorScheme.errorContainer,
-                            RoundedCornerShape(6.dp)
+                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                            RoundedCornerShape(4.dp)
                         )
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "Spam ${(item.spamProbability * 100).toInt()}%",
+                        text = "${(item.spamProbability * 100).toInt()}% spam",
                         color = MaterialTheme.colorScheme.onErrorContainer,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
             Text(
-                text = item.body,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
-                style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
+                text = DateUtils.formatConversationDate(item.timestamp),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.outline
             )
+        }
 
-            Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
+        Text(
+            text = item.body,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            maxLines = if (expanded) Int.MAX_VALUE else 2,
+            overflow = TextOverflow.Ellipsis,
+            style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FilledTonalButton(
+                onClick = onRestore,
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.height(32.dp)
             ) {
-                TextButton(onClick = onRestore) {
-                    Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Restore to Inbox", fontSize = 13.sp)
-                }
+                Icon(
+                    Icons.Default.Restore,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp)
+                )
                 Spacer(modifier = Modifier.width(6.dp))
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
+                Text("Restore", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    Icons.Default.DeleteOutline,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }

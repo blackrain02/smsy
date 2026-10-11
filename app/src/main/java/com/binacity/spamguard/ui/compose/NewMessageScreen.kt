@@ -1,59 +1,95 @@
 package com.binacity.spamguard.ui.compose
 
+import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.binacity.spamguard.data.model.ContactItem
 import com.binacity.spamguard.data.model.Message
 import com.binacity.spamguard.data.repository.SmsRepository
 import com.binacity.spamguard.ui.chat.calculateSmsCounter
 import com.binacity.spamguard.ui.util.DateUtils
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun NewMessageScreen(
     smsRepository: SmsRepository,
     onBack: () -> Unit,
     onNavigateToChat: (Long, String, String?) -> Unit
 ) {
-    var recipient by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    var recipients by remember { mutableStateOf<List<ContactItem>>(emptyList()) }
+    var recipientQuery by remember { mutableStateOf("") }
     var inputText by remember { mutableStateOf("") }
-    var messages by remember { mutableStateOf<List<Message>>(emptyList()) }
+    var historyMessages by remember { mutableStateOf<List<Message>>(emptyList()) }
     var isSending by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
-    // بارگذاری تاریخچه مکالمه در صورت وجود گفتگو با این شماره
-    LaunchedEffect(recipient) {
-        val clean = recipient.trim()
-        if (clean.length >= 4) {
-            val threadId = smsRepository.getOrCreateThreadId(clean)
+    // بارگذاری مخاطبین بر اساس متن جستجو
+    val suggestedContacts by produceState(initialValue = emptyList<ContactItem>(), key1 = recipientQuery) {
+        value = smsRepository.getContacts(recipientQuery)
+    }
+
+    // تاریخچه پیام‌ها برای حالت تک‌مخاطب
+    LaunchedEffect(recipients) {
+        if (recipients.size == 1) {
+            val single = recipients.first().number.trim()
+            val threadId = smsRepository.getOrCreateThreadId(single)
             if (threadId > 0) {
-                messages = smsRepository.getMessages(threadId)
+                historyMessages = smsRepository.getMessages(threadId, single)
             }
         } else {
-            messages = emptyList()
+            historyMessages = emptyList()
         }
     }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(historyMessages.size) {
+        if (historyMessages.isNotEmpty()) {
+            listState.animateScrollToItem(historyMessages.size - 1)
+        }
+    }
+
+    fun addRecipient(item: ContactItem) {
+        val cleanNumber = item.number.trim()
+        if (cleanNumber.isNotBlank() && recipients.none { it.number == cleanNumber }) {
+            recipients = recipients + item
+        }
+        recipientQuery = ""
+    }
+
+    fun addManualNumber(rawNumber: String) {
+        val clean = rawNumber.trim()
+        if (clean.length >= 3) {
+            val contactName = smsRepository.getContactName(clean)
+            addRecipient(ContactItem(name = contactName ?: clean, number = clean))
         }
     }
 
@@ -121,34 +157,47 @@ fun NewMessageScreen(
                             )
                         }
 
+                        val canSend = recipients.isNotEmpty() && inputText.isNotBlank() && !isSending
+
                         IconButton(
                             onClick = {
-                                val target = recipient.trim()
-                                if (target.isNotBlank() && inputText.isNotBlank() && !isSending) {
+                                if (canSend) {
                                     isSending = true
                                     val textToSend = inputText
                                     inputText = ""
+                                    val targets = recipients.toList()
                                     scope.launch {
-                                        val success = smsRepository.sendMessage(target, textToSend)
+                                        var allSuccess = true
+                                        for (target in targets) {
+                                            val sent = smsRepository.sendMessage(target.number, textToSend)
+                                            if (!sent) allSuccess = false
+                                        }
                                         isSending = false
-                                        if (success) {
-                                            val threadId = smsRepository.getOrCreateThreadId(target)
-                                            val contactName = smsRepository.getContactName(target)
-                                            onNavigateToChat(threadId, target, contactName)
+                                        if (targets.size == 1) {
+                                            val single = targets.first()
+                                            val threadId = smsRepository.getOrCreateThreadId(single.number)
+                                            onNavigateToChat(threadId, single.number, single.name)
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                "Message sent to ${targets.size} recipients",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                            onBack()
                                         }
                                     }
                                 }
                             },
-                            enabled = recipient.isNotBlank() && inputText.isNotBlank() && !isSending,
+                            enabled = canSend,
                             modifier = Modifier.background(
-                                if (recipient.isNotBlank() && inputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                 RoundedCornerShape(50)
                             )
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.Send,
                                 contentDescription = "Send",
-                                tint = if (recipient.isNotBlank() && inputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -161,97 +210,284 @@ fun NewMessageScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // ردیف گیرنده پیامک
+            // بخش انتخاب و ورود گیرندگان (To)
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "To",
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 14.sp
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    TextField(
-                        value = recipient,
-                        onValueChange = { recipient = it },
-                        placeholder = { Text("Type name or phone number", fontSize = 14.sp) },
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "To",
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 14.sp
                         )
-                    )
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        // چیپ‌های مخاطبین انتخاب شده به همراه فیلد متنی جستجو
+                        FlowRow(
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            for (item in recipients) {
+                                InputChip(
+                                    selected = false,
+                                    onClick = { },
+                                    label = {
+                                        Text(
+                                            text = item.name,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Remove",
+                                            modifier = Modifier
+                                                .size(14.dp)
+                                                .clickable {
+                                                    recipients = recipients.filter { it.number != item.number }
+                                                }
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                            }
+
+                            TextField(
+                                value = recipientQuery,
+                                onValueChange = { recipientQuery = it },
+                                placeholder = {
+                                    if (recipients.isEmpty()) {
+                                        Text("Type name or phone number", fontSize = 13.sp)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .widthIn(min = 120.dp)
+                                    .height(48.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Phone,
+                                    imeAction = ImeAction.Done
+                                ),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        if (recipientQuery.isNotBlank()) {
+                                            addManualNumber(recipientQuery)
+                                        }
+                                    }
+                                ),
+                                colors = TextFieldDefaults.colors(
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent
+                                )
+                            )
+                        }
+                    }
                 }
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-            // بخش نمایش پیام‌های رد و بدل شده در صورت وجود
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (messages.isEmpty() && recipient.isNotBlank()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "No prior messages with this number",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 13.sp
+            // نمایش لیست انتخاب مخاطب یا تاریخچه گفتگو
+            val isTypingRecipient = recipientQuery.isNotBlank() || recipients.isEmpty()
+
+            if (isTypingRecipient) {
+                // لیست پیشنهاد مخاطبین گوشی
+                val filteredContacts = remember(suggestedContacts, recipients) {
+                    val selectedNumbers = recipients.map { it.number }.toSet()
+                    suggestedContacts.filter { !selectedNumbers.contains(it.number) }
+                }
+
+                val trimmedQuery = recipientQuery.trim()
+                val canAddDirectNumber = trimmedQuery.length >= 3 &&
+                        trimmedQuery.any { it.isDigit() } &&
+                        recipients.none { it.number == trimmedQuery }
+
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    if (canAddDirectNumber) {
+                        item {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { addManualNumber(trimmedQuery) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Phone,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Column {
+                                        Text(
+                                            "Send to $trimmedQuery",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            "Tap to add number",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                                thickness = 0.5.dp
                             )
                         }
                     }
-                }
 
-                items(messages, key = { it.id }) { msg ->
-                    val alignment = if (msg.isSent) Alignment.CenterEnd else Alignment.CenterStart
-                    val bg = if (msg.isSent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                    val textColor = if (msg.isSent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                    val timeColor = if (msg.isSent) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = alignment
-                    ) {
+                    items(filteredContacts, key = { it.number }) { contact ->
                         Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = bg,
-                            modifier = Modifier.widthIn(max = 300.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { addRecipient(contact) }
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
                         ) {
-                            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        contact.name.take(1).uppercase(),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column {
+                                    Text(
+                                        contact.name,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        contact.number,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f),
+                            thickness = 0.5.dp
+                        )
+                    }
+                }
+            } else if (recipients.size > 1) {
+                // نمایش اطلاعات پیام گروهی
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "Group conversation with ${recipients.size} recipients",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Messages will be delivered individually to each recipient",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                // حالت یک مخاطب: نمایش تاریخچه مکالمه
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (historyMessages.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Text(
-                                    text = msg.body,
-                                    color = textColor,
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
-                                    style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
+                                    "No prior messages with this contact",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 13.sp
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = DateUtils.formatMessageTime(msg.date),
-                                    color = timeColor,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.align(if (msg.isSent) Alignment.End else Alignment.Start)
-                                )
+                            }
+                        }
+                    }
+
+                    items(historyMessages, key = { it.id }) { msg ->
+                        val alignment = if (msg.isSent) Alignment.CenterEnd else Alignment.CenterStart
+                        val bg = if (msg.isSent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                        val textColor = if (msg.isSent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        val timeColor = if (msg.isSent) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = alignment
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = bg,
+                                modifier = Modifier.widthIn(max = 300.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                                    Text(
+                                        text = msg.body,
+                                        color = textColor,
+                                        fontSize = 14.sp,
+                                        lineHeight = 20.sp,
+                                        style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = DateUtils.formatMessageTime(msg.date),
+                                        color = timeColor,
+                                        fontSize = 10.sp,
+                                        modifier = Modifier.align(if (msg.isSent) Alignment.End else Alignment.Start)
+                                    )
+                                }
                             }
                         }
                     }

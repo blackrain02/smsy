@@ -66,6 +66,7 @@ fun ConversationListScreen(
     var finalResult by remember { mutableStateOf<ScanProgress?>(null) }
     var showRestrictedHelpDialog by remember { mutableStateOf(false) }
     var conversationToDelete by remember { mutableStateOf<Conversation?>(null) }
+    var selectedConversationForAction by remember { mutableStateOf<Conversation?>(null) }
     val scope = rememberCoroutineScope()
 
     val hasSmsPermission = ContextCompat.checkSelfPermission(
@@ -300,11 +301,11 @@ fun ConversationListScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(filteredConversations, key = { it.threadId }) { item ->
+                    items(filteredConversations, key = { "${it.threadId}_${it.address}" }) { item ->
                         ConversationItem(
                             conversation = item,
                             onClick = { onConversationClick(item) },
-                            onLongClick = { conversationToDelete = item }
+                            onLongClick = { selectedConversationForAction = item }
                         )
                         HorizontalDivider(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
@@ -315,6 +316,94 @@ fun ConversationListScreen(
         }
     }
 
+
+    // منوی عملیات گفتگو (سنجاق کردن / حذف)
+    if (selectedConversationForAction != null) {
+        val target = selectedConversationForAction!!
+        AlertDialog(
+            onDismissRequest = { selectedConversationForAction = null },
+            title = {
+                Text(
+                    text = target.contactName ?: target.address,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    TextButton(
+                        onClick = {
+                            smsRepository.togglePin(target.address)
+                            selectedConversationForAction = null
+                            refreshList()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 12.dp, horizontal = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.PushPin,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                if (target.isPinned) "Unpin from top" else "Pin to top",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
+                    TextButton(
+                        onClick = {
+                            conversationToDelete = target
+                            selectedConversationForAction = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 12.dp, horizontal = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                "Delete conversation",
+                                color = MaterialTheme.colorScheme.error,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { selectedConversationForAction = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     // دیالوگ تایید حذف گفتگو
     if (conversationToDelete != null) {
@@ -329,7 +418,7 @@ fun ConversationListScreen(
                 Button(
                     onClick = {
                         scope.launch {
-                            smsRepository.deleteConversation(target.threadId)
+                            smsRepository.deleteConversation(target.threadId, target.address)
                             conversationToDelete = null
                             refreshList()
                         }
@@ -509,12 +598,23 @@ fun ConversationItem(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                Text(
-                    text = DateUtils.formatConversationDate(conversation.date),
-                    fontSize = 12.sp,
-                    color = if (isUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (conversation.isPinned) {
+                        Icon(
+                            Icons.Default.PushPin,
+                            contentDescription = "Pinned",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    Text(
+                        text = DateUtils.formatConversationDate(conversation.date),
+                        fontSize = 12.sp,
+                        color = if (isUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(4.dp))
