@@ -23,10 +23,13 @@ import com.binacity.spamguard.ui.conversations.ConversationListScreen
 import com.binacity.spamguard.ui.quarantine.QuarantineScreen
 import com.binacity.spamguard.ui.theme.SmsyTheme
 
+import com.binacity.spamguard.ui.compose.NewMessageScreen
+
 sealed class Screen {
     object Conversations : Screen()
     object Quarantine : Screen()
     data class Chat(val threadId: Long, val address: String, val contactName: String?) : Screen()
+    object NewMessage : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -55,7 +58,7 @@ class MainActivity : ComponentActivity() {
 
                 Scaffold(
                     bottomBar = {
-                        if (currentScreen !is Screen.Chat) {
+                        if (currentScreen !is Screen.Chat && currentScreen !is Screen.NewMessage) {
                             NavigationBar {
                                 NavigationBarItem(
                                     selected = currentScreen is Screen.Conversations,
@@ -94,6 +97,7 @@ class MainActivity : ComponentActivity() {
                                     spamRepository = spamRepository,
                                     permissionTrigger = permissionTrigger.intValue,
                                     onRequestPermissions = { checkAndRequestPermissions() },
+                                    onNewMessageClick = { currentScreen = Screen.NewMessage },
                                     onConversationClick = { conv ->
                                         currentScreen = Screen.Chat(conv.threadId, conv.address, conv.contactName)
                                     }
@@ -109,6 +113,15 @@ class MainActivity : ComponentActivity() {
                                     contactName = screen.contactName,
                                     smsRepository = smsRepository,
                                     onBack = { currentScreen = Screen.Conversations }
+                                )
+                            }
+                            is Screen.NewMessage -> {
+                                NewMessageScreen(
+                                    smsRepository = smsRepository,
+                                    onBack = { currentScreen = Screen.Conversations },
+                                    onNavigateToChat = { threadId, address, contactName ->
+                                        currentScreen = Screen.Chat(threadId, address, contactName)
+                                    }
                                 )
                             }
                         }

@@ -3,7 +3,7 @@ package com.binacity.spamguard.ai
 object TextNormalizer {
     private val DIGITS_REGEX = Regex("[0-9\\u06F0-\\u06F9\\u0660-\\u0669]+")
     private val URL_REGEX = Regex("https?://\\S+|www\\.\\S+")
-    private val PUNCT_REGEX = Regex("[^\\w\\s<>]")
+    private val PUNCT_REGEX = Regex("[^\\p{L}\\p{N}\\s<>]")
     private val SPACES_REGEX = Regex("\\s+")
 
     fun normalize(text: String?): String {

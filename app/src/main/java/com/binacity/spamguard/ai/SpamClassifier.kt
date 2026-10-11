@@ -21,7 +21,6 @@ class SpamClassifier private constructor(context: Context) {
     init {
         val modelBytes = context.assets.open("spam_classifier.onnx").readBytes()
         val opts = OrtSession.SessionOptions().apply {
-            // بهینه‌سازی نخ‌های پردازش برای حفظ شارژ باتری موبایل
             setInterOpNumThreads(1)
             setIntraOpNumThreads(1)
         }
@@ -46,22 +45,52 @@ class SpamClassifier private constructor(context: Context) {
             
             val result = session.run(mapOf("float_input" to tensor))
             
-            // خروجی دوم مدل رگرسیون لجستیک: نگاشت احتمالات کلاس‌ها
             @Suppress("UNCHECKED_CAST")
             val probList = result[1].value as List<Map<Long, Float>>
-            val spamProb = probList.firstOrNull()?.get(1L) ?: 0.0f
+            var spamProb = probList.firstOrNull()?.get(1L) ?: 0.0f
             
             tensor.close()
             result.close()
 
-            // اگر احتمال اسپم بیش از ۷۵٪ باشد، پیامک هرزنامه تلقی می‌شود
-            val isSpam = spamProb >= 0.75f
+            val isCommercial = isCommercialSender(sender)
+            val hasExplicitAd = hasExplicitAdTriggers(body)
+
+            // تقویت وزن هوش مصنوعی با نشانگرهای رسمی مخابراتی پیامک‌های تبلیغاتی در ایران
+            if (hasExplicitAd) {
+                spamProb = maxOf(spamProb, 0.88f)
+            } else if (isCommercial && spamProb >= 0.40f) {
+                spamProb = maxOf(spamProb, 0.75f)
+            }
+
+            val isSpam = spamProb >= 0.55f || hasExplicitAd
             ClassificationResult(isSpam = isSpam, spamProbability = spamProb, isWhitelisted = false)
         } catch (e: Exception) {
             e.printStackTrace()
-            // اصل برائت: در صورت بروز خطای استنتاج، پیامک سالم فرض می‌شود تا چیزی حذف نشود
-            ClassificationResult(isSpam = false, spamProbability = 0.0f, isWhitelisted = false)
+            val hasExplicitAd = hasExplicitAdTriggers(body)
+            ClassificationResult(isSpam = hasExplicitAd, spamProbability = if (hasExplicitAd) 0.9f else 0.0f, isWhitelisted = false)
         }
+    }
+
+    private fun isCommercialSender(sender: String?): Boolean {
+        if (sender.isNullOrBlank()) return false
+        val clean = sender.replace("+98", "").replace("0098", "").trimStart('0')
+        return clean.startsWith("1000") || clean.startsWith("2000") || clean.startsWith("3000") ||
+               clean.startsWith("5000") || clean.startsWith("9000") || clean.startsWith("021") ||
+               (clean.length in 4..6 && clean.all { it.isDigit() })
+    }
+
+    private fun hasExplicitAdTriggers(body: String?): Boolean {
+        if (body.isNullOrBlank()) return false
+        val lower = body.lowercase()
+        val optOutPatterns = listOf("لغو 11", "لغو ۱۱", "لغو با ۱۱", "لغو با 11", "لغو: 11", "لغو: ۱۱", "لغو با ارسال", "ارسال 1 به", "ارسال ۱ به", "ارسال عدد")
+        if (optOutPatterns.any { lower.contains(it) }) return true
+
+        val promoKeywords = listOf("تخفیف", "فروش ویژه", "جشنواره", "حراج", "تور ", "وام ", "اقساط", "کاشت مو", "کلینیک", "دندانپزشکی", "شارژ رایگان", "سیمکارت", "استخدام")
+        var matches = 0
+        for (kw in promoKeywords) {
+            if (lower.contains(kw)) matches++
+        }
+        return matches >= 2
     }
 
     companion object {

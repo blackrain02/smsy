@@ -52,6 +52,7 @@ fun ConversationListScreen(
     onConversationClick: (Conversation) -> Unit,
     permissionTrigger: Int = 0,
     onRequestPermissions: () -> Unit = {},
+    onNewMessageClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -64,7 +65,6 @@ fun ConversationListScreen(
     var showResultDialog by remember { mutableStateOf(false) }
     var finalResult by remember { mutableStateOf<ScanProgress?>(null) }
     var showRestrictedHelpDialog by remember { mutableStateOf(false) }
-    var showNewMessageDialog by remember { mutableStateOf(false) }
     var conversationToDelete by remember { mutableStateOf<Conversation?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -167,7 +167,7 @@ fun ConversationListScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { showNewMessageDialog = true },
+                onClick = onNewMessageClick,
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
@@ -315,73 +315,6 @@ fun ConversationListScreen(
         }
     }
 
-    // دیالوگ ارسال پیام جدید (New Message)
-    if (showNewMessageDialog) {
-        var newAddress by remember { mutableStateOf("") }
-        var newBody by remember { mutableStateOf("") }
-        var isSending by remember { mutableStateOf(false) }
-
-        AlertDialog(
-            onDismissRequest = { showNewMessageDialog = false },
-            title = { Text("New Message", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = newAddress,
-                        onValueChange = { newAddress = it },
-                        label = { Text("Recipient (Phone number)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = newBody,
-                        onValueChange = { newBody = it },
-                        label = { Text("Message") },
-                        modifier = Modifier.fillMaxWidth(),
-                        textStyle = LocalTextStyle.current.copy(textDirection = TextDirection.Content),
-                        minLines = 3
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newAddress.isNotBlank() && newBody.isNotBlank()) {
-                            isSending = true
-                            scope.launch {
-                                val success = smsRepository.sendMessage(newAddress, newBody)
-                                isSending = false
-                                if (success) {
-                                    showNewMessageDialog = false
-                                    refreshList()
-                                    val threadId = smsRepository.getOrCreateThreadId(newAddress)
-                                    onConversationClick(
-                                        Conversation(
-                                            threadId = threadId,
-                                            address = newAddress,
-                                            contactName = null,
-                                            snippet = newBody,
-                                            date = System.currentTimeMillis(),
-                                            unreadCount = 0
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    },
-                    enabled = !isSending && newAddress.isNotBlank() && newBody.isNotBlank()
-                ) {
-                    Text(if (isSending) "Sending..." else "Send")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showNewMessageDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 
     // دیالوگ تایید حذف گفتگو
     if (conversationToDelete != null) {

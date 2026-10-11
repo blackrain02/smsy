@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -12,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
@@ -20,6 +22,32 @@ import com.binacity.spamguard.data.model.Message
 import com.binacity.spamguard.data.repository.SmsRepository
 import com.binacity.spamguard.ui.util.DateUtils
 import kotlinx.coroutines.launch
+
+data class SmsCounter(val remaining: Int, val maxSingle: Int, val parts: Int)
+
+fun calculateSmsCounter(text: String): SmsCounter {
+    if (text.isEmpty()) return SmsCounter(70, 70, 0)
+    val isUnicode = text.any { it.code > 127 }
+    val singleLimit = if (isUnicode) 70 else 160
+    val concatLimit = if (isUnicode) 67 else 153
+    val len = text.length
+
+    return if (len <= singleLimit) {
+        SmsCounter(
+            remaining = singleLimit - len,
+            maxSingle = singleLimit,
+            parts = 1
+        )
+    } else {
+        val parts = (len + concatLimit - 1) / concatLimit
+        val remaining = (parts * concatLimit) - len
+        SmsCounter(
+            remaining = remaining,
+            maxSingle = concatLimit,
+            parts = parts
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,10 +61,17 @@ fun ChatScreen(
     var messages by remember { mutableStateOf<List<Message>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
 
     LaunchedEffect(threadId) {
         messages = smsRepository.getMessages(threadId)
         smsRepository.markThreadAsRead(threadId)
+    }
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
     }
 
     Scaffold(
@@ -75,7 +110,11 @@ fun ChatScreen(
         },
         bottomBar = {
             Surface(
-                tonalElevation = 2.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+                    .navigationBarsPadding(),
+                tonalElevation = 3.dp,
                 color = MaterialTheme.colorScheme.surface
             ) {
                 Row(
@@ -87,7 +126,7 @@ fun ChatScreen(
                     TextField(
                         value = inputText,
                         onValueChange = { inputText = it },
-                        placeholder = { Text("Type a message...", fontSize = 14.sp) },
+                        placeholder = { Text("Text message", fontSize = 14.sp) },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(24.dp),
                         textStyle = LocalTextStyle.current.copy(
@@ -95,13 +134,25 @@ fun ChatScreen(
                             fontSize = 14.sp
                         ),
                         colors = TextFieldDefaults.colors(
-                            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
                             focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
                         )
                     )
+
                     Spacer(modifier = Modifier.width(8.dp))
+
+                    val counter = remember(inputText) { calculateSmsCounter(inputText) }
+                    if (inputText.isNotEmpty()) {
+                        Text(
+                            text = "${counter.remaining}/${counter.maxSingle}" + if (counter.parts > 1) " (${counter.parts})" else "",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                    }
+
                     IconButton(
                         onClick = {
                             if (inputText.isNotBlank()) {
@@ -115,15 +166,16 @@ fun ChatScreen(
                                 }
                             }
                         },
+                        enabled = inputText.isNotBlank(),
                         modifier = Modifier.background(
-                            MaterialTheme.colorScheme.primary,
+                            if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             RoundedCornerShape(50)
                         )
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Send",
-                            tint = MaterialTheme.colorScheme.onPrimary
+                            tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -131,6 +183,7 @@ fun ChatScreen(
         }
     ) { padding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
