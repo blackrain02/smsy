@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
@@ -49,33 +50,12 @@ fun NewMessageScreen(
     var recipients by remember { mutableStateOf<List<ContactItem>>(emptyList()) }
     var recipientQuery by remember { mutableStateOf("") }
     var inputText by remember { mutableStateOf("") }
-    var historyMessages by remember { mutableStateOf<List<Message>>(emptyList()) }
     var isSending by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
 
     // بارگذاری بلادرنگ مخاطبین بر اساس متن جستجو (حروف فارسی، انگلیسی و اعداد)
     val suggestedContacts by produceState(initialValue = emptyList<ContactItem>(), key1 = recipientQuery) {
         value = smsRepository.getContacts(recipientQuery)
-    }
-
-    // تاریخچه پیام‌ها برای حالت تک‌مخاطب
-    LaunchedEffect(recipients) {
-        if (recipients.size == 1) {
-            val single = recipients.first().number.trim()
-            val threadId = smsRepository.getOrCreateThreadId(single)
-            if (threadId > 0) {
-                historyMessages = smsRepository.getMessages(threadId, single)
-            }
-        } else {
-            historyMessages = emptyList()
-        }
-    }
-
-    LaunchedEffect(historyMessages.size) {
-        if (historyMessages.isNotEmpty()) {
-            listState.animateScrollToItem(historyMessages.size - 1)
-        }
     }
 
     fun addRecipient(item: ContactItem) {
@@ -97,7 +77,14 @@ fun NewMessageScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("New conversation", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                title = {
+                    val titleText = when {
+                        recipients.size > 1 -> "Group message (${recipients.size})"
+                        recipients.size == 1 -> recipients.first().name
+                        else -> "New conversation"
+                    }
+                    Text(titleText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -333,216 +320,239 @@ fun NewMessageScreen(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-            // نمایش لیست انتخاب مخاطب یا تاریخچه گفتگو
-            val isTypingRecipient = recipientQuery.isNotBlank() || recipients.isEmpty()
+            // لیست انتخاب مخاطبین با پشتیبانی از شروع مستقیم چت و انتخاب گروهی
+            val filteredContacts = remember(suggestedContacts, recipients) {
+                val selectedNumbers = recipients.map { it.number }.toSet()
+                suggestedContacts.filter { !selectedNumbers.contains(it.number) }
+            }
 
-            if (isTypingRecipient) {
-                // لیست پیشنهاد مخاطبین گوشی
-                val filteredContacts = remember(suggestedContacts, recipients) {
-                    val selectedNumbers = recipients.map { it.number }.toSet()
-                    suggestedContacts.filter { !selectedNumbers.contains(it.number) }
-                }
+            val trimmedQuery = recipientQuery.trim()
+            val canAddDirectNumber = trimmedQuery.length >= 3 &&
+                    trimmedQuery.any { it.isDigit() } &&
+                    recipients.none { it.number == trimmedQuery }
 
-                val trimmedQuery = recipientQuery.trim()
-                val canAddDirectNumber = trimmedQuery.length >= 3 &&
-                        trimmedQuery.any { it.isDigit() } &&
-                        recipients.none { it.number == trimmedQuery }
-
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    if (canAddDirectNumber) {
-                        item {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { addManualNumber(trimmedQuery) }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                // بنر راهنما در صورتی که مخاطب به عنوان گروه انتخاب شده باشد
+                if (recipients.size == 1) {
+                    item {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Phone,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            modifier = Modifier.size(20.dp)
-                                        )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "Selected: ${recipients.first().name}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        "Add more recipients below, or open 1-on-1 chat",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        val single = recipients.first()
+                                        scope.launch {
+                                            val clean = single.number.trim()
+                                            val threadId = smsRepository.getOrCreateThreadId(clean)
+                                            onNavigateToChat(threadId, clean, single.name)
+                                        }
                                     }
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Column {
-                                        Text(
-                                            "Send to $trimmedQuery",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            "Tap to add number",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
+                                ) {
+                                    Text("Open Chat", fontWeight = FontWeight.Bold)
                                 }
                             }
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
-                                thickness = 0.5.dp
-                            )
                         }
                     }
-
-                    if (filteredContacts.isEmpty() && !canAddDirectNumber && recipientQuery.isNotBlank()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center
+                } else if (recipients.size > 1) {
+                    item {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Icon(
+                                    Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    "No contacts matching '$recipientQuery'",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 13.sp
+                                    "Group SMS: message will send to ${recipients.size} recipients",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                         }
                     }
+                }
 
-                    items(filteredContacts, key = { it.number }) { contact ->
+                if (canAddDirectNumber) {
+                    item {
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { addRecipient(contact) }
+                                .clickable {
+                                    if (recipients.isEmpty()) {
+                                        scope.launch {
+                                            val clean = trimmedQuery.trim()
+                                            val threadId = smsRepository.getOrCreateThreadId(clean)
+                                            val contactName = smsRepository.getContactName(clean)
+                                            onNavigateToChat(threadId, clean, contactName)
+                                        }
+                                    } else {
+                                        addManualNumber(trimmedQuery)
+                                    }
+                                }
                                 .padding(horizontal = 16.dp, vertical = 10.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
                                     modifier = Modifier
                                         .size(40.dp)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        contact.name.take(1).uppercase(),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    Icon(
+                                        Icons.Default.Phone,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(14.dp))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        contact.name,
-                                        fontWeight = FontWeight.SemiBold,
+                                        "Send to $trimmedQuery",
+                                        fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                     Text(
-                                        contact.number,
+                                        if (recipients.isEmpty()) "Tap to start conversation" else "Tap to add to group",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { addManualNumber(trimmedQuery) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Add,
+                                        contentDescription = "Add to group",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
                         }
                         HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
                             thickness = 0.5.dp
                         )
                     }
                 }
-            } else if (recipients.size > 1) {
-                // نمایش اطلاعات پیام گروهی
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.Person,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            "Group conversation with ${recipients.size} recipients",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "Messages will be delivered individually to each recipient",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+
+                if (filteredContacts.isEmpty() && !canAddDirectNumber && recipientQuery.isNotBlank()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "No contacts matching '$recipientQuery'",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                 }
-            } else {
-                // حالت یک مخاطب: نمایش تاریخچه مکالمه
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (historyMessages.isEmpty()) {
-                        item {
+
+                items(filteredContacts, key = { it.number }) { contact ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (recipients.isEmpty()) {
+                                    scope.launch {
+                                        val clean = contact.number.trim()
+                                        val threadId = smsRepository.getOrCreateThreadId(clean)
+                                        onNavigateToChat(threadId, clean, contact.name)
+                                    }
+                                } else {
+                                    addRecipient(contact)
+                                }
+                            }
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 32.dp),
+                                    .size(40.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    "No prior messages with this contact",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 13.sp
+                                    contact.name.take(1).uppercase(),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    contact.name,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    contact.number,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // دکمه اختصاصی افزودن به گروه برای پیامک چند نفره
+                            IconButton(
+                                onClick = { addRecipient(contact) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = "Add to group",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
                     }
-
-                    items(historyMessages, key = { it.id }) { msg ->
-                        val alignment = if (msg.isSent) Alignment.CenterEnd else Alignment.CenterStart
-                        val bg = if (msg.isSent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                        val textColor = if (msg.isSent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                        val timeColor = if (msg.isSent) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = alignment
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = bg,
-                                modifier = Modifier.widthIn(max = 300.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-                                    Text(
-                                        text = msg.body,
-                                        color = textColor,
-                                        fontSize = 14.sp,
-                                        lineHeight = 20.sp,
-                                        style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = DateUtils.formatMessageTime(msg.date),
-                                        color = timeColor,
-                                        fontSize = 10.sp,
-                                        modifier = Modifier.align(if (msg.isSent) Alignment.End else Alignment.Start)
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f),
+                        thickness = 0.5.dp
+                    )
                 }
             }
         }

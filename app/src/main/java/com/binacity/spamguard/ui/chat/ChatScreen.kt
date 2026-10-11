@@ -115,10 +115,16 @@ fun ChatScreen(
         }
     }
 
-    // اسکرول خودکار به آخرین پیام
+    // اسکرول مستقیم به آخرین پیام در ورود اولیه بدون انیمیشن آزاردهنده
+    var isInitialScrollDone by remember { mutableStateOf(false) }
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            if (!isInitialScrollDone) {
+                listState.scrollToItem(messages.size - 1)
+                isInitialScrollDone = true
+            } else {
+                listState.animateScrollToItem(messages.size - 1)
+            }
         }
     }
 

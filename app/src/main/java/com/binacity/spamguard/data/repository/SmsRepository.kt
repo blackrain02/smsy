@@ -26,6 +26,7 @@ class SmsRepository(private val context: Context) {
 
     private val pinnedPrefs = context.getSharedPreferences("smsy_pinned_threads", Context.MODE_PRIVATE)
     private val aliasRepo = SenderAliasRepository(context)
+    private val recentlyReadKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     val aliasRepository: SenderAliasRepository get() = aliasRepo
 
@@ -54,7 +55,11 @@ class SmsRepository(private val context: Context) {
                 put(Telephony.Sms.SEEN, if (isRead) 1 else 0)
                 put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_INBOX)
             }
-            context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values)
+            val result = context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values)
+            if (!isRead) {
+                recentlyReadKeys.remove(getConversationKey(sender))
+            }
+            result
         } catch (e: Throwable) {
             e.printStackTrace()
             null
@@ -296,13 +301,21 @@ class SmsRepository(private val context: Context) {
                 }
             }
 
-            // تخصیص مقادیر تجمیعی خوانده‌نشده
+            // تخصیص مقادیر تجمیعی خوانده‌نشده با اولویت پاک‌سازی فوری
             for (i in list.indices) {
                 val conv = list[i]
                 val key = if (conv.aliasId != null) "alias_${conv.aliasId}" else getConversationKey(conv.address)
-                val count = unreadMap[key] ?: 0
-                if (count > 0) {
-                    list[i] = conv.copy(unreadCount = count)
+                val isRecentlyRead = recentlyReadKeys.contains(key) ||
+                        recentlyReadKeys.contains(getConversationKey(conv.address)) ||
+                        conv.mergedAddresses.any { recentlyReadKeys.contains(getConversationKey(it)) }
+
+                if (isRecentlyRead) {
+                    list[i] = conv.copy(unreadCount = 0)
+                } else {
+                    val count = unreadMap[key] ?: 0
+                    if (count > 0) {
+                        list[i] = conv.copy(unreadCount = count)
+                    }
                 }
             }
         } catch (e: Throwable) {
@@ -319,11 +332,76 @@ class SmsRepository(private val context: Context) {
      */
     suspend fun markThreadAsRead(threadId: Long, address: String = "", mergedAddresses: Set<String> = emptySet()) = withContext(Dispatchers.IO) {
         try {
+            val targets = if (mergedAddresses.isNotEmpty()) mergedAddresses else if (address.isNotBlank()) setOf(address) else emptySet()
+
+            for (target in targets) {
+                recentlyReadKeys.add(getConversationKey(target))
+                val alias = aliasRepo.getAllAliases().firstOrNull { it.numbers.contains(target) }
+                if (alias != null) {
+                    recentlyReadKeys.add("alias_${alias.id}")
+                }
+            }
+
             val values = ContentValues().apply {
                 put(Telephony.Sms.READ, 1)
                 put(Telephony.Sms.SEEN, 1)
             }
 
+            // 1. علامت‌گذاری صریح از طریق سیستم Conversation Provider اندروید
+            if (threadId > 0) {
+                try {
+                    context.contentResolver.update(
+                        android.net.Uri.parse("content://sms/conversations/$threadId"),
+                        values,
+                        null,
+                        null
+                    )
+                } catch (ignored: Throwable) {}
+            }
+
+            // 2. استخراج Primary Key تمام پیامک‌های خوانده‌نشده مرتبط جهت بروزرسانی قطعی و ۱۰۰٪ بدون باگ OEM
+            val unreadIds = mutableListOf<Long>()
+            try {
+                val idCursor = context.contentResolver.query(
+                    Telephony.Sms.CONTENT_URI,
+                    arrayOf(Telephony.Sms._ID, Telephony.Sms.ADDRESS, Telephony.Sms.THREAD_ID),
+                    "${Telephony.Sms.READ} = 0 OR ${Telephony.Sms.READ} IS NULL",
+                    null,
+                    null
+                )
+                idCursor?.use { c ->
+                    val idIdx = c.getColumnIndex(Telephony.Sms._ID)
+                    val addrIdx = c.getColumnIndex(Telephony.Sms.ADDRESS)
+                    val thIdx = c.getColumnIndex(Telephony.Sms.THREAD_ID)
+                    while (c.moveToNext()) {
+                        val msgId = if (idIdx != -1) c.getLong(idIdx) else -1L
+                        val msgAddr = if (addrIdx != -1) c.getString(addrIdx) ?: "" else ""
+                        val msgTh = if (thIdx != -1) c.getLong(thIdx) else -1L
+
+                        val matchesThread = threadId > 0 && msgTh == threadId
+                        val matchesAddr = targets.any { t ->
+                            t.equals(msgAddr, ignoreCase = true) ||
+                            (t.isNotBlank() && getConversationKey(t) == getConversationKey(msgAddr))
+                        }
+
+                        if (matchesThread || matchesAddr) {
+                            if (msgId > 0) unreadIds.add(msgId)
+                        }
+                    }
+                }
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            }
+
+            if (unreadIds.isNotEmpty()) {
+                for (chunk in unreadIds.chunked(100)) {
+                    val idClause = "${Telephony.Sms._ID} IN (${chunk.joinToString(",")})"
+                    context.contentResolver.update(Telephony.Sms.CONTENT_URI, values, idClause, null)
+                    context.contentResolver.update(Telephony.Sms.Inbox.CONTENT_URI, values, idClause, null)
+                }
+            }
+
+            // 3. بروزرسانی تکمیلی بر اساس تطبیق شماره، سرشماره‌های کوتاه (Shortcodes) و ThreadID
             val whereParts = mutableListOf<String>()
             val args = mutableListOf<String>()
 
@@ -332,28 +410,26 @@ class SmsRepository(private val context: Context) {
                 args.add(threadId.toString())
             }
 
-            val targets = if (mergedAddresses.isNotEmpty()) mergedAddresses else if (address.isNotBlank()) setOf(address) else emptySet()
-
             for (target in targets) {
                 whereParts.add("${Telephony.Sms.ADDRESS} = ?")
                 args.add(target)
 
+                whereParts.add("LOWER(TRIM(${Telephony.Sms.ADDRESS})) = LOWER(TRIM(?))")
+                args.add(target)
+
                 val norm = normalizePhoneNumber(target)
-                if (norm.length >= 7) {
+                if (norm.length >= 3) {
                     whereParts.add("${Telephony.Sms.ADDRESS} LIKE ?")
                     args.add("%$norm")
                 }
             }
 
-            val selection = if (whereParts.isNotEmpty()) {
-                "(${whereParts.joinToString(" OR ")}) AND ${Telephony.Sms.READ} = 0"
-            } else {
-                "${Telephony.Sms.READ} = 0"
+            if (whereParts.isNotEmpty()) {
+                val selection = whereParts.joinToString(" OR ")
+                val sArgs = args.toTypedArray()
+                context.contentResolver.update(Telephony.Sms.CONTENT_URI, values, selection, sArgs)
+                context.contentResolver.update(Telephony.Sms.Inbox.CONTENT_URI, values, selection, sArgs)
             }
-
-            // به‌روزرسانی همزمان جدول‌های رسمی برای اطمینان از پاک شدن عدد ۱ در تمام گوشی‌ها
-            context.contentResolver.update(Telephony.Sms.CONTENT_URI, values, selection, args.toTypedArray())
-            context.contentResolver.update(Telephony.Sms.Inbox.CONTENT_URI, values, selection, args.toTypedArray())
         } catch (e: Throwable) {
             e.printStackTrace()
         }

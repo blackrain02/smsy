@@ -23,6 +23,8 @@ import com.binacity.spamguard.ui.chat.ChatScreen
 import com.binacity.spamguard.ui.conversations.ConversationListScreen
 import com.binacity.spamguard.ui.quarantine.QuarantineScreen
 import com.binacity.spamguard.ui.theme.SmsyTheme
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.binacity.spamguard.data.model.Conversation
 
 import com.binacity.spamguard.ui.compose.NewMessageScreen
 
@@ -61,6 +63,8 @@ class MainActivity : ComponentActivity() {
             SmsyTheme {
                 var currentScreen by remember { mutableStateOf<Screen>(Screen.Conversations) }
                 val unreadSpamCount by spamRepository.getUnreadCount().collectAsState(initial = 0)
+                val conversationListState = rememberLazyListState()
+                var conversationList by remember { mutableStateOf<List<Conversation>>(emptyList()) }
 
                 // مدیریت دکمه و ژست بازگشت سیستم‌عامل اندروید جهت جلوگیری از بسته شدن برنامه
                 BackHandler(enabled = currentScreen !is Screen.Conversations) {
@@ -109,6 +113,9 @@ class MainActivity : ComponentActivity() {
                                     permissionTrigger = permissionTrigger.intValue,
                                     onRequestPermissions = { checkAndRequestPermissions() },
                                     onNewMessageClick = { currentScreen = Screen.NewMessage },
+                                    listState = conversationListState,
+                                    cachedConversations = conversationList,
+                                    onConversationsLoaded = { conversationList = it },
                                     onConversationClick = { conv ->
                                         currentScreen = Screen.Chat(conv.threadId, conv.address, conv.contactName, conv.mergedAddresses)
                                     }

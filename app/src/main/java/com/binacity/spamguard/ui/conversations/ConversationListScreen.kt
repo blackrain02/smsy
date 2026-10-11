@@ -57,11 +57,20 @@ fun ConversationListScreen(
     permissionTrigger: Int = 0,
     onRequestPermissions: () -> Unit = {},
     onNewMessageClick: () -> Unit = {},
+    listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
+    cachedConversations: List<Conversation> = emptyList(),
+    onConversationsLoaded: (List<Conversation>) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var conversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
+    var conversations by remember { mutableStateOf(cachedConversations) }
+
+    LaunchedEffect(cachedConversations) {
+        if (cachedConversations.isNotEmpty() && conversations.isEmpty()) {
+            conversations = cachedConversations
+        }
+    }
     var searchQuery by remember { mutableStateOf("") }
     var isDefaultApp by remember { mutableStateOf(checkIsDefaultSmsApp(context)) }
     var isScanning by remember { mutableStateOf(false) }
@@ -92,7 +101,9 @@ fun ConversationListScreen(
     fun refreshList() {
         scope.launch {
             try {
-                conversations = smsRepository.getConversations()
+                val fresh = smsRepository.getConversations()
+                conversations = fresh
+                onConversationsLoaded(fresh)
             } catch (e: Throwable) {
                 e.printStackTrace()
             }
@@ -355,7 +366,10 @@ fun ConversationListScreen(
                     )
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize()
+                ) {
                     items(filteredConversations, key = { "${it.threadId}_${it.address}_${it.aliasId ?: ""}" }) { item ->
                         ConversationItem(
                             conversation = item,
@@ -778,7 +792,7 @@ fun ConversationItem(
                 onClick = onClick,
                 onLongClick = onLongClick
             )
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val initials = (conversation.contactName ?: conversation.address).take(1).uppercase()
@@ -787,115 +801,111 @@ fun ConversationItem(
 
         Box(
             modifier = Modifier
-                .size(48.dp)
+                .size(46.dp)
                 .background(avatarBg, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 initials,
                 fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
+                fontSize = 17.sp,
                 color = avatarTextColor
             )
         }
 
-        Spacer(modifier = Modifier.width(14.dp))
+        Spacer(modifier = Modifier.width(12.dp))
 
+        // ستون میانی: نام مخاطب و نشان ادغام در بالا، متن خلاصه پیام در پایین
         Column(modifier = Modifier.weight(1f)) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = conversation.contactName ?: conversation.address,
-                        fontWeight = if (isUnread) FontWeight.Bold else FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                Text(
+                    text = conversation.contactName ?: conversation.address,
+                    fontWeight = if (isUnread) FontWeight.Bold else FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
 
-                    if (conversation.mergedAddresses.size > 1) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    MaterialTheme.colorScheme.secondaryContainer,
-                                    RoundedCornerShape(4.dp)
-                                )
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = "${conversation.mergedAddresses.size} senders",
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
+                if (conversation.mergedAddresses.size > 1) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                MaterialTheme.colorScheme.secondaryContainer,
+                                RoundedCornerShape(4.dp)
                             )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (conversation.isPinned) {
-                        Icon(
-                            Icons.Default.PushPin,
-                            contentDescription = "Pinned",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(13.dp)
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "${conversation.mergedAddresses.size} senders",
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
                     }
-                    Text(
-                        text = DateUtils.formatConversationDate(conversation.date),
-                        fontSize = 12.sp,
-                        color = if (isUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal
-                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = conversation.snippet,
-                    color = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (isUnread) FontWeight.Medium else FontWeight.Normal,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = LocalTextStyle.current.copy(textDirection = TextDirection.Content),
-                    modifier = Modifier.weight(1f)
-                )
+            Text(
+                text = conversation.snippet,
+                color = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = if (isUnread) FontWeight.Medium else FontWeight.Normal,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
+            )
+        }
 
-                // نشانگر تعداد پیام‌های خوانده‌نشده
-                if (isUnread) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.primary, CircleShape)
-                            .padding(horizontal = 7.dp, vertical = 2.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = conversation.unreadCount.toString(),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+        Spacer(modifier = Modifier.width(10.dp))
+
+        // ستون انتهایی یکپارچه: تاریخ و سنجاق در بالا، بج پیام خوانده‌نشده در پایین
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (conversation.isPinned) {
+                    Icon(
+                        Icons.Default.PushPin,
+                        contentDescription = "Pinned",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
                 }
+                Text(
+                    text = DateUtils.formatConversationDate(conversation.date),
+                    fontSize = 11.sp,
+                    color = if (isUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal
+                )
+            }
+
+            if (isUnread) {
+                Box(
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = 20.dp, minHeight = 20.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = conversation.unreadCount.toString(),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.height(20.dp))
             }
         }
     }
