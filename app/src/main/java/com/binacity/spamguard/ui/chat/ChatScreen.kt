@@ -1,6 +1,15 @@
 package com.binacity.spamguard.ui.chat
 
+import android.content.Intent
+import android.database.ContentObserver
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.Telephony
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -9,11 +18,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
@@ -49,7 +64,7 @@ fun calculateSmsCounter(text: String): SmsCounter {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     threadId: Long,
@@ -58,16 +73,45 @@ fun ChatScreen(
     smsRepository: SmsRepository,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     var messages by remember { mutableStateOf<List<Message>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
+    var messageForAction by remember { mutableStateOf<Message?>(null) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
+    // بارگذاری اولیه پیام‌ها و علامت‌گذاری به عنوان خوانده‌شده
     LaunchedEffect(threadId) {
         messages = smsRepository.getMessages(threadId)
         smsRepository.markThreadAsRead(threadId)
     }
 
+    // لیسنر بلادرنگ برای دریافت پیامک‌های جدید به محض ورود به سیستم‌عامل
+    DisposableEffect(threadId) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                scope.launch {
+                    messages = smsRepository.getMessages(threadId)
+                    smsRepository.markThreadAsRead(threadId)
+                }
+            }
+        }
+        try {
+            context.contentResolver.registerContentObserver(Telephony.Sms.CONTENT_URI, true, observer)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        onDispose {
+            try {
+                context.contentResolver.unregisterContentObserver(observer)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    // اسکرول خودکار به آخرین پیام
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
@@ -101,6 +145,23 @@ fun ChatScreen(
                             contentDescription = "Back",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
+                    }
+                },
+                actions = {
+                    if (address.isNotBlank() && address != "Unknown") {
+                        IconButton(onClick = {
+                            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                                data = Uri.parse("tel:$address")
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(dialIntent)
+                        }) {
+                            Icon(
+                                Icons.Default.Call,
+                                contentDescription = "Call",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -203,7 +264,12 @@ fun ChatScreen(
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = bg,
-                        modifier = Modifier.widthIn(max = 300.dp)
+                        modifier = Modifier
+                            .widthIn(max = 300.dp)
+                            .combinedClickable(
+                                onClick = {},
+                                onLongClick = { messageForAction = msg }
+                            )
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
                             Text(
@@ -225,5 +291,55 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    // دیالوگ منوی پیام با نگه‌داشتن طولانی (Copy / Delete)
+    if (messageForAction != null) {
+        val target = messageForAction!!
+        AlertDialog(
+            onDismissRequest = { messageForAction = null },
+            title = { Text("Message Options", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(target.body))
+                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                            messageForAction = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("Copy text", color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                smsRepository.deleteMessage(target.id)
+                                messages = smsRepository.getMessages(threadId)
+                                messageForAction = null
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("Delete message", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { messageForAction = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }

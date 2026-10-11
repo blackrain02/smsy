@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
@@ -55,6 +56,11 @@ class MainActivity : ComponentActivity() {
             SmsyTheme {
                 var currentScreen by remember { mutableStateOf<Screen>(Screen.Conversations) }
                 val unreadSpamCount by spamRepository.getUnreadCount().collectAsState(initial = 0)
+
+                // مدیریت دکمه و ژست بازگشت سیستم‌عامل اندروید جهت جلوگیری از بسته شدن برنامه
+                BackHandler(enabled = currentScreen !is Screen.Conversations) {
+                    currentScreen = Screen.Conversations
+                }
 
                 Scaffold(
                     bottomBar = {

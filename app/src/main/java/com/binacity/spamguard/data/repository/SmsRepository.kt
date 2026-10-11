@@ -220,6 +220,23 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
+     * حذف یک پیامک منفرد
+     */
+    suspend fun deleteMessage(messageId: Long): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val count = context.contentResolver.delete(
+                Telephony.Sms.CONTENT_URI,
+                "${Telephony.Sms._ID} = ?",
+                arrayOf(messageId.toString())
+            )
+            count > 0
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
      * دریافت یا ایجاد شناسه گفتگو برای شماره جدید
      */
     fun getOrCreateThreadId(address: String): Long {
