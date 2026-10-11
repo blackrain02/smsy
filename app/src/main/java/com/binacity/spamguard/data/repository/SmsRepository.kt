@@ -521,6 +521,36 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
+     * انتقال دسته‌ای چندین گفتگو به قرنطینه اسپم
+     */
+    suspend fun quarantineConversations(conversations: List<Conversation>, spamRepository: SpamRepository): Boolean = withContext(Dispatchers.IO) {
+        try {
+            for (c in conversations) {
+                quarantineConversation(c.threadId, c.address, c.mergedAddresses, spamRepository)
+            }
+            true
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
+     * حذف دسته‌ای چندین گفتگو
+     */
+    suspend fun deleteConversations(conversations: List<Conversation>): Boolean = withContext(Dispatchers.IO) {
+        try {
+            for (c in conversations) {
+                deleteConversation(c.threadId, c.address, c.mergedAddresses)
+            }
+            true
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
      * حذف یک گفتگوی کامل یا تمام سرشماره‌های ادغام‌شده آن
      */
     suspend fun deleteConversation(threadId: Long, address: String = "", mergedAddresses: Set<String> = emptySet()): Boolean = withContext(Dispatchers.IO) {

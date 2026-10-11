@@ -8,6 +8,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -105,54 +107,71 @@ class MainActivity : ComponentActivity() {
                             .padding(innerPadding),
                         color = MaterialTheme.colorScheme.background
                     ) {
-                        when (val screen = currentScreen) {
-                            is Screen.Conversations -> {
-                                ConversationListScreen(
-                                    smsRepository = smsRepository,
-                                    spamRepository = spamRepository,
-                                    permissionTrigger = permissionTrigger.intValue,
-                                    onRequestPermissions = { checkAndRequestPermissions() },
-                                    onNewMessageClick = { currentScreen = Screen.NewMessage },
-                                    listState = conversationListState,
-                                    cachedConversations = conversationList,
-                                    onConversationsLoaded = { conversationList = it },
-                                    onConversationClick = { conv ->
-                                        smsRepository.markThreadAsReadAsync(conv.threadId, conv.address, conv.mergedAddresses, conv.aliasId)
-                                        conversationList = conversationList.map {
-                                            if (it.address == conv.address || (conv.aliasId != null && it.aliasId == conv.aliasId)) {
-                                                it.copy(unreadCount = 0)
-                                            } else {
-                                                it
+                        AnimatedContent(
+                            targetState = currentScreen,
+                            transitionSpec = {
+                                if (targetState is Screen.Chat || targetState is Screen.NewMessage) {
+                                    (slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(280)) + fadeIn(animationSpec = tween(280)))
+                                        .togetherWith(slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = tween(280)) + fadeOut(animationSpec = tween(280)))
+                                } else if (initialState is Screen.Chat || initialState is Screen.NewMessage) {
+                                    (slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(280)) + fadeIn(animationSpec = tween(280)))
+                                        .togetherWith(slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(280)) + fadeOut(animationSpec = tween(280)))
+                                } else {
+                                    fadeIn(animationSpec = tween(200))
+                                        .togetherWith(fadeOut(animationSpec = tween(200)))
+                                }
+                            },
+                            label = "ScreenTransition"
+                        ) { screen ->
+                            when (screen) {
+                                is Screen.Conversations -> {
+                                    ConversationListScreen(
+                                        smsRepository = smsRepository,
+                                        spamRepository = spamRepository,
+                                        permissionTrigger = permissionTrigger.intValue,
+                                        onRequestPermissions = { checkAndRequestPermissions() },
+                                        onNewMessageClick = { currentScreen = Screen.NewMessage },
+                                        listState = conversationListState,
+                                        cachedConversations = conversationList,
+                                        onConversationsLoaded = { conversationList = it },
+                                        onConversationClick = { conv ->
+                                            smsRepository.markThreadAsReadAsync(conv.threadId, conv.address, conv.mergedAddresses, conv.aliasId)
+                                            conversationList = conversationList.map {
+                                                if (it.address == conv.address || (conv.aliasId != null && it.aliasId == conv.aliasId)) {
+                                                    it.copy(unreadCount = 0)
+                                                } else {
+                                                    it
+                                                }
                                             }
+                                            currentScreen = Screen.Chat(conv.threadId, conv.address, conv.contactName, conv.mergedAddresses)
                                         }
-                                        currentScreen = Screen.Chat(conv.threadId, conv.address, conv.contactName, conv.mergedAddresses)
-                                    }
-                                )
-                            }
-                            is Screen.Quarantine -> {
-                                QuarantineScreen(
-                                    spamRepository = spamRepository,
-                                    smsRepository = smsRepository
-                                )
-                            }
-                            is Screen.Chat -> {
-                                ChatScreen(
-                                    threadId = screen.threadId,
-                                    address = screen.address,
-                                    contactName = screen.contactName,
-                                    smsRepository = smsRepository,
-                                    onBack = { currentScreen = Screen.Conversations },
-                                    mergedAddresses = screen.mergedAddresses
-                                )
-                            }
-                            is Screen.NewMessage -> {
-                                NewMessageScreen(
-                                    smsRepository = smsRepository,
-                                    onBack = { currentScreen = Screen.Conversations },
-                                    onNavigateToChat = { threadId, address, contactName ->
-                                        currentScreen = Screen.Chat(threadId, address, contactName)
-                                    }
-                                )
+                                    )
+                                }
+                                is Screen.Quarantine -> {
+                                    QuarantineScreen(
+                                        spamRepository = spamRepository,
+                                        smsRepository = smsRepository
+                                    )
+                                }
+                                is Screen.Chat -> {
+                                    ChatScreen(
+                                        threadId = screen.threadId,
+                                        address = screen.address,
+                                        contactName = screen.contactName,
+                                        smsRepository = smsRepository,
+                                        onBack = { currentScreen = Screen.Conversations },
+                                        mergedAddresses = screen.mergedAddresses
+                                    )
+                                }
+                                is Screen.NewMessage -> {
+                                    NewMessageScreen(
+                                        smsRepository = smsRepository,
+                                        onBack = { currentScreen = Screen.Conversations },
+                                        onNavigateToChat = { threadId, address, contactName ->
+                                            currentScreen = Screen.Chat(threadId, address, contactName)
+                                        }
+                                    )
+                                }
                             }
                         }
                     }

@@ -76,6 +76,20 @@ class SenderAliasRepository(context: Context) {
     }
 
     /**
+     * افزودن سرشماره‌ها به یک گروه ادغام موجود
+     */
+    fun addNumbersToAlias(aliasId: String, newNumbers: Set<String>): Boolean {
+        val list = getAllAliases().toMutableList()
+        val index = list.indexOfFirst { it.id == aliasId }
+        if (index == -1) return false
+        val existing = list[index]
+        val updatedNumbers = (existing.numbers + newNumbers.map { cleanAddress(it) }.filter { it.isNotBlank() }).toSet()
+        list[index] = existing.copy(numbers = updatedNumbers)
+        saveAll(list)
+        return true
+    }
+
+    /**
      * حذف یک گروه ادغام
      */
     fun deleteAlias(id: String) {

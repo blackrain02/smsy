@@ -12,8 +12,11 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.provider.Telephony
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -31,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,9 +86,19 @@ fun ConversationListScreen(
     var showRestrictedHelpDialog by remember { mutableStateOf(false) }
     var conversationToDelete by remember { mutableStateOf<Conversation?>(null) }
     var conversationToSpam by remember { mutableStateOf<Conversation?>(null) }
+    var conversationToAddToGroup by remember { mutableStateOf<Conversation?>(null) }
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedConversations by remember { mutableStateOf<Set<Conversation>>(emptySet()) }
+    var showBatchDeleteDialog by remember { mutableStateOf(false) }
+    var showBatchSpamDialog by remember { mutableStateOf(false) }
     var selectedConversationForAction by remember { mutableStateOf<Conversation?>(null) }
     var conversationToMerge by remember { mutableStateOf<Conversation?>(null) }
     val scope = rememberCoroutineScope()
+
+    BackHandler(enabled = isSelectionMode) {
+        isSelectionMode = false
+        selectedConversations = emptySet()
+    }
 
     val hasSmsPermission = ContextCompat.checkSelfPermission(
         context,
@@ -178,50 +192,135 @@ fun ConversationListScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Smsy", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                actions = {
-                    IconButton(
-                        onClick = {
-                            if (!isScanning) {
-                                isScanning = true
-                                scope.launch {
-                                    val classifier = SpamClassifier.getInstance(context)
-                                    val result = smsRepository.scanAndCleanHistoricalSms(
-                                        spamRepository = spamRepository,
-                                        classifier = classifier,
-                                        onProgress = { progress ->
-                                            scanProgress = progress
-                                        }
-                                    )
-                                    isScanning = false
-                                    finalResult = result
-                                    showResultDialog = true
-                                    refreshList()
+            AnimatedContent(
+                targetState = isSelectionMode,
+                transitionSpec = {
+                    (fadeIn(animationSpec = tween(200)) + slideInVertically(initialOffsetY = { -it / 2 }))
+                        .togetherWith(fadeOut(animationSpec = tween(200)) + slideOutVertically(targetOffsetY = { -it / 2 }))
+                },
+                label = "TopBarTransition"
+            ) { inSelection ->
+                if (inSelection) {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                "${selectedConversations.size} selected",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = {
+                                isSelectionMode = false
+                                selectedConversations = emptySet()
+                            }) {
+                                Icon(Icons.Default.Close, contentDescription = "Cancel selection")
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = {
+                                selectedConversations = if (selectedConversations.size == filteredConversations.size) {
+                                    emptySet()
+                                } else {
+                                    filteredConversations.toSet()
                                 }
+                            }) {
+                                Icon(
+                                    if (selectedConversations.size == filteredConversations.size && filteredConversations.isNotEmpty())
+                                        Icons.Default.ChecklistRtl
+                                    else
+                                        Icons.Default.SelectAll,
+                                    contentDescription = "Select All"
+                                )
+                            }
+                            IconButton(
+                                onClick = { showBatchSpamDialog = true },
+                                enabled = selectedConversations.isNotEmpty()
+                            ) {
+                                Icon(
+                                    Icons.Default.Shield,
+                                    contentDescription = "Batch Move to Spam",
+                                    tint = if (selectedConversations.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                )
+                            }
+                            IconButton(
+                                onClick = { showBatchDeleteDialog = true },
+                                enabled = selectedConversations.isNotEmpty()
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Batch Delete",
+                                    tint = if (selectedConversations.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            titleContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                } else {
+                    TopAppBar(
+                        title = { Text("Smsy", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        actions = {
+                            IconButton(
+                                onClick = { isSelectionMode = true }
+                            ) {
+                                Icon(
+                                    Icons.Default.Checklist,
+                                    contentDescription = "Batch Select",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    if (!isScanning) {
+                                        isScanning = true
+                                        scope.launch {
+                                            val classifier = SpamClassifier.getInstance(context)
+                                            val result = smsRepository.scanAndCleanHistoricalSms(
+                                                spamRepository = spamRepository,
+                                                classifier = classifier,
+                                                onProgress = { progress ->
+                                                    scanProgress = progress
+                                                }
+                                            )
+                                            isScanning = false
+                                            finalResult = result
+                                            showResultDialog = true
+                                            refreshList()
+                                        }
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Default.AutoFixHigh,
+                                    contentDescription = "Scan & Clean Spam",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
-                    ) {
-                        Icon(
-                            Icons.Default.AutoFixHigh,
-                            contentDescription = "Scan & Clean Spam",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                    )
                 }
-            )
+            }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = onNewMessageClick,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+            AnimatedVisibility(
+                visible = !isSelectionMode,
+                enter = scaleIn(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
+                exit = scaleOut(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
             ) {
-                Icon(Icons.Default.Add, contentDescription = "New Conversation")
+                FloatingActionButton(
+                    onClick = onNewMessageClick,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "New Conversation")
+                }
             }
         },
         modifier = modifier
@@ -379,11 +478,38 @@ fun ConversationListScreen(
                     state = listState,
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filteredConversations, key = { "${it.threadId}_${it.address}_${it.aliasId ?: ""}" }) { item ->
+                    items(
+                        items = filteredConversations,
+                        key = { it.aliasId ?: it.address },
+                        contentType = { "conversation" }
+                    ) { item ->
+                        val isSelected = selectedConversations.contains(item)
                         ConversationItem(
                             conversation = item,
-                            onClick = { onConversationClick(item) },
-                            onLongClick = { selectedConversationForAction = item }
+                            isSelectionMode = isSelectionMode,
+                            isSelected = isSelected,
+                            onClick = {
+                                if (isSelectionMode) {
+                                    selectedConversations = if (isSelected) {
+                                        selectedConversations - item
+                                    } else {
+                                        selectedConversations + item
+                                    }
+                                } else {
+                                    onConversationClick(item)
+                                }
+                            },
+                            onLongClick = {
+                                if (isSelectionMode) {
+                                    selectedConversations = if (isSelected) {
+                                        selectedConversations - item
+                                    } else {
+                                        selectedConversations + item
+                                    }
+                                } else {
+                                    selectedConversationForAction = item
+                                }
+                            }
                         )
                         HorizontalDivider(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
@@ -478,6 +604,40 @@ fun ConversationListScreen(
                         modifier = Modifier.padding(vertical = 4.dp)
                     )
 
+                    // گزینه افزودن به گروه ادغام موجود
+                    TextButton(
+                        onClick = {
+                            conversationToAddToGroup = target
+                            selectedConversationForAction = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 12.dp, horizontal = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.GroupAdd,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                "Add to Existing Merged Group",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
                     // گزینه انتقال به اسپم (قرنطینه)
                     TextButton(
                         onClick = {
@@ -534,6 +694,41 @@ fun ConversationListScreen(
                             Text(
                                 "Delete conversation",
                                 color = MaterialTheme.colorScheme.error,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
+                    // گزینه انتخاب چندتایی (حالت بچ)
+                    TextButton(
+                        onClick = {
+                            isSelectionMode = true
+                            selectedConversations = setOf(target)
+                            selectedConversationForAction = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 12.dp, horizontal = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Checklist,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                "Select multiple (Batch mode)",
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -751,6 +946,159 @@ fun ConversationListScreen(
         )
     }
 
+    // دیالوگ افزودن سرشماره به گروه ادغام موجود
+    if (conversationToAddToGroup != null) {
+        val target = conversationToAddToGroup!!
+        val allAliases = remember(target) { smsRepository.aliasRepository.getAllAliases() }
+        AlertDialog(
+            onDismissRequest = { conversationToAddToGroup = null },
+            icon = { Icon(Icons.Default.GroupAdd, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Add to Merged Group", fontWeight = FontWeight.Bold) },
+            text = {
+                if (allAliases.isEmpty()) {
+                    Text(
+                        "No merged groups exist yet. Create a group first with 'Set Name & Merge Senders'.",
+                        fontSize = 13.sp
+                    )
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp)
+                    ) {
+                        Text(
+                            "Select an existing group to add ${target.contactName ?: target.address} into:",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(allAliases, key = { it.id }) { alias ->
+                                Surface(
+                                    onClick = {
+                                        val targetNumbers = if (target.mergedAddresses.isNotEmpty()) target.mergedAddresses else setOf(target.address)
+                                        smsRepository.aliasRepository.addNumbersToAlias(alias.id, targetNumbers)
+                                        conversationToAddToGroup = null
+                                        refreshList()
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Group,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = alias.displayName,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp
+                                            )
+                                            Text(
+                                                text = "${alias.numbers.size} numbers (${alias.numbers.take(3).joinToString(", ")})",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { conversationToAddToGroup = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // دیالوگ تایید انتقال گروهی به اسپم (قرنطینه)
+    if (showBatchSpamDialog && selectedConversations.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showBatchSpamDialog = false },
+            icon = { Icon(Icons.Default.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Quarantine ${selectedConversations.size} conversations?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("All messages from the ${selectedConversations.size} selected senders will be moved to spam quarantine and removed from your inbox.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val toSpam = selectedConversations.toList()
+                        showBatchSpamDialog = false
+                        isSelectionMode = false
+                        selectedConversations = emptySet()
+                        scope.launch {
+                            smsRepository.quarantineConversations(toSpam, spamRepository)
+                            refreshList()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Move to Spam")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchSpamDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // دیالوگ تایید حذف گروهی گفتگوها
+    if (showBatchDeleteDialog && selectedConversations.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showBatchDeleteDialog = false },
+            icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Delete ${selectedConversations.size} conversations?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("Delete all messages for the ${selectedConversations.size} selected conversations? This action cannot be undone.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val toDelete = selectedConversations.toList()
+                        showBatchDeleteDialog = false
+                        isSelectionMode = false
+                        selectedConversations = emptySet()
+                        scope.launch {
+                            smsRepository.deleteConversations(toDelete)
+                            refreshList()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     // راهنمای تصویری باز کردن Restricted Settings در اندروید ۱۳ و ۱۴
     if (showRestrictedHelpDialog) {
         AlertDialog(
@@ -860,14 +1208,22 @@ fun ConversationListScreen(
 @Composable
 fun ConversationItem(
     conversation: Conversation,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
     val isUnread = conversation.unreadCount > 0
+    val itemBg = if (isSelected) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+    } else {
+        Color.Transparent
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(itemBg)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -875,7 +1231,23 @@ fun ConversationItem(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val initials = (conversation.contactName ?: conversation.address).take(1).uppercase()
+        AnimatedVisibility(
+            visible = isSelectionMode,
+            enter = fadeIn(animationSpec = tween(180)) + expandHorizontally(animationSpec = tween(180)),
+            exit = fadeOut(animationSpec = tween(180)) + shrinkHorizontally(animationSpec = tween(180))
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onClick() }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+        }
+
+        val initials = remember(conversation.contactName, conversation.address) {
+            (conversation.contactName ?: conversation.address).take(1).uppercase()
+        }
         val avatarBg = if (isUnread) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
         val avatarTextColor = if (isUnread) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -940,7 +1312,7 @@ fun ConversationItem(
                 fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
+                style = TextStyle(textDirection = TextDirection.Content)
             )
         }
 

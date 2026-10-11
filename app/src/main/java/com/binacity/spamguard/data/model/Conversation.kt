@@ -1,5 +1,8 @@
 package com.binacity.spamguard.data.model
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class Conversation(
     val threadId: Long,
     val address: String,
