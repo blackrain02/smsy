@@ -7,5 +7,7 @@ data class Conversation(
     val snippet: String,
     val date: Long,
     val unreadCount: Int,
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val mergedAddresses: Set<String> = emptySet(),
+    val aliasId: String? = null
 )

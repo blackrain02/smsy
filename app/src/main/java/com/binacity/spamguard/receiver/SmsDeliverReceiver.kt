@@ -32,8 +32,8 @@ class SmsDeliverReceiver : BroadcastReceiver() {
                 val spamRepo = SpamRepository(context)
                 val smsRepo = SmsRepository(context)
 
-                // گام ۰: یادگیری تطبیقی - بررسی حافظه تصمیمات قبلی کاربر
-                if (spamRepo.isUserWhitelisted(sender)) {
+                // گام ۰: مخاطبین دفترچه تلفن و لیست سفید کاربر هرگز اسپم نیستند
+                if (smsRepo.isContact(sender) || spamRepo.isUserWhitelisted(sender)) {
                     smsRepo.saveToInbox(sender, fullBody, timestamp)
                     NotificationHelper.showMessageNotification(context, sender, fullBody)
                     return@launch

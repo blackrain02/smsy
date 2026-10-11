@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.binacity.spamguard.data.local.SpamMessageEntity
+import com.binacity.spamguard.data.repository.SmsRepository
 import com.binacity.spamguard.data.repository.SpamRepository
 import com.binacity.spamguard.ui.util.DateUtils
 import kotlinx.coroutines.launch
@@ -42,6 +43,7 @@ data class SpamSenderGroup(
 @Composable
 fun QuarantineScreen(
     spamRepository: SpamRepository,
+    smsRepository: SmsRepository,
     modifier: Modifier = Modifier
 ) {
     val spamList by spamRepository.getAllSpam().collectAsState(initial = emptyList())
@@ -50,14 +52,15 @@ fun QuarantineScreen(
     var showClearAllDialog by remember { mutableStateOf(false) }
     var senderToDelete by remember { mutableStateOf<SpamSenderGroup?>(null) }
 
-    // تجمیع پیامک‌های هرزنامه به تفکیک سرشماره / فرستنده
+    // تجمیع پیامک‌های هرزنامه به تفکیک سرشماره / فرستنده و جستجو میان نام مخاطب و محتوا
     val groupedSenders = remember(spamList, searchQuery) {
         val filtered = if (searchQuery.isBlank()) {
             spamList
         } else {
             val q = searchQuery.trim().lowercase()
             spamList.filter {
-                it.sender.lowercase().contains(q) || it.body.lowercase().contains(q)
+                val contactName = smsRepository.getContactName(it.sender)?.lowercase() ?: ""
+                it.sender.lowercase().contains(q) || it.body.lowercase().contains(q) || contactName.contains(q)
             }
         }
 
@@ -139,7 +142,7 @@ fun QuarantineScreen(
                             TextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
-                                placeholder = { Text("Search sender or message...", fontSize = 13.sp) },
+                                placeholder = { Text("Search sender, contact or text...", fontSize = 13.sp) },
                                 modifier = Modifier.weight(1f),
                                 singleLine = true,
                                 colors = TextFieldDefaults.colors(
@@ -221,6 +224,7 @@ fun QuarantineScreen(
                 items(groupedSenders, key = { it.sender }) { group ->
                     SenderSpamGroupItem(
                         group = group,
+                        smsRepository = smsRepository,
                         onRestoreSender = {
                             scope.launch {
                                 spamRepository.restoreSenderToInbox(group.sender)
@@ -300,10 +304,12 @@ fun QuarantineScreen(
 @Composable
 fun SenderSpamGroupItem(
     group: SpamSenderGroup,
+    smsRepository: SmsRepository,
     onRestoreSender: () -> Unit,
     onDeleteSender: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val contactName = remember(group.sender) { smsRepository.getContactName(group.sender) }
 
     Column(
         modifier = Modifier
@@ -316,53 +322,76 @@ fun SenderSpamGroupItem(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = group.sender,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = contactName ?: group.sender,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        color = if (contactName != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
 
-                if (group.count > 1) {
+                    if (contactName != null) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "Contact",
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    if (group.count > 1) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.secondaryContainer,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .padding(horizontal = 6.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "${group.count}",
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.width(6.dp))
+
                     Box(
                         modifier = Modifier
                             .background(
-                                MaterialTheme.colorScheme.secondaryContainer,
-                                RoundedCornerShape(10.dp)
+                                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                                RoundedCornerShape(4.dp)
                             )
-                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = "${group.count}",
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            fontSize = 11.sp,
+                            text = "${(group.latestMessage.spamProbability * 100).toInt()}% spam",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Box(
-                    modifier = Modifier
-                        .background(
-                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
-                            RoundedCornerShape(4.dp)
-                        )
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
+                if (contactName != null) {
                     Text(
-                        text = "${(group.latestMessage.spamProbability * 100).toInt()}% spam",
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
+                        text = group.sender,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

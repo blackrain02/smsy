@@ -25,6 +25,9 @@ data class ScanProgress(
 class SmsRepository(private val context: Context) {
 
     private val pinnedPrefs = context.getSharedPreferences("smsy_pinned_threads", Context.MODE_PRIVATE)
+    private val aliasRepo = SenderAliasRepository(context)
+
+    val aliasRepository: SenderAliasRepository get() = aliasRepo
 
     /**
      * کش حافظه‌ای سریع برای نگاشت شماره مخاطبین به نام‌ها جهت جلوگیری از افت سرعت UI
@@ -48,6 +51,7 @@ class SmsRepository(private val context: Context) {
                 put(Telephony.Sms.BODY, body)
                 put(Telephony.Sms.DATE, timestamp)
                 put(Telephony.Sms.READ, if (isRead) 1 else 0)
+                put(Telephony.Sms.SEEN, if (isRead) 1 else 0)
                 put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_INBOX)
             }
             context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values)
@@ -116,6 +120,15 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
+     * آیا این شماره در دفترچه تلفن گوشی ثبت است؟ (جهت جلوگیری قطعی از اسپم شدن)
+     */
+    fun isContact(phoneNumber: String): Boolean {
+        val map = getContactCache()
+        val norm = normalizePhoneNumber(phoneNumber)
+        return !map[norm].isNullOrBlank()
+    }
+
+    /**
      * بررسی وضعیت سنجاق شدن یک گفتگو
      */
     fun isPinned(address: String): Boolean {
@@ -146,7 +159,7 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
-     * دریافت لیست مخاطبین گوشی جهت انتخاب در ارسال پیام جدید
+     * دریافت لیست مخاطبین گوشی جهت انتخاب و جستجو در ارسال پیام جدید
      */
     fun getContacts(query: String = ""): List<ContactItem> {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
@@ -204,7 +217,7 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
-     * دریافت لیست گفتگوها با معماری Single-Pass، کش مخاطبین و رفع باگ گفتگوهای تکراری
+     * دریافت لیست گفتگوها با پشتیبانی از ادغام سرشماره‌ها، نام‌گذاری اختصاصی و سنجاق
      */
     suspend fun getConversations(): List<Conversation> = withContext(Dispatchers.IO) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
@@ -216,6 +229,7 @@ class SmsRepository(private val context: Context) {
         val seenSenders = HashSet<String>()
         val contactsMap = getContactCache()
         val pinnedKeys = getPinnedKeys()
+        val allAliases = aliasRepo.getAllAliases()
 
         try {
             val uri = Telephony.Sms.CONTENT_URI
@@ -241,21 +255,29 @@ class SmsRepository(private val context: Context) {
                     val address = it.getString(addressCol) ?: "Unknown"
                     if (address.isBlank()) continue
 
-                    val convKey = getConversationKey(address)
+                    // بررسی آیا این شماره متعلق به یک گروه ادغام‌شده/نام مستعار است
+                    val matchedAlias = allAliases.firstOrNull { alias ->
+                        alias.numbers.any { num ->
+                            num.equals(address, ignoreCase = true) ||
+                            (normalizePhoneNumber(num).length >= 7 && normalizePhoneNumber(num) == normalizePhoneNumber(address))
+                        }
+                    }
+
+                    val convKey = if (matchedAlias != null) "alias_${matchedAlias.id}" else getConversationKey(address)
                     val isRead = if (readCol != -1) it.getInt(readCol) == 1 else true
 
                     if (!isRead) {
                         unreadMap[convKey] = (unreadMap[convKey] ?: 0) + 1
                     }
 
-                    // یکتا‌سازی بر اساس کلید شماره/فرستنده برای جلوگیری از تکرار گفتگوها در بازیابی یا تردهای موازی
+                    // یکتا‌سازی بر اساس کلید گفتگو (یا گروه ادغام)
                     if (!seenSenders.contains(convKey)) {
                         seenSenders.add(convKey)
                         val threadId = it.getLong(threadIdCol)
                         val snippet = if (bodyCol != -1) it.getString(bodyCol) ?: "" else ""
                         val date = if (dateCol != -1) it.getLong(dateCol) else System.currentTimeMillis()
-                        val contactName = contactsMap[normalizePhoneNumber(address)]
-                        val isPinned = pinnedKeys.contains(convKey)
+                        val contactName = matchedAlias?.displayName ?: contactsMap[normalizePhoneNumber(address)]
+                        val isPinned = pinnedKeys.contains(convKey) || pinnedKeys.contains(getConversationKey(address))
 
                         list.add(
                             Conversation(
@@ -265,7 +287,9 @@ class SmsRepository(private val context: Context) {
                                 snippet = snippet,
                                 date = date,
                                 unreadCount = 0,
-                                isPinned = isPinned
+                                isPinned = isPinned,
+                                mergedAddresses = matchedAlias?.numbers ?: emptySet(),
+                                aliasId = matchedAlias?.id
                             )
                         )
                     }
@@ -275,7 +299,7 @@ class SmsRepository(private val context: Context) {
             // تخصیص مقادیر تجمیعی خوانده‌نشده
             for (i in list.indices) {
                 val conv = list[i]
-                val key = getConversationKey(conv.address)
+                val key = if (conv.aliasId != null) "alias_${conv.aliasId}" else getConversationKey(conv.address)
                 val count = unreadMap[key] ?: 0
                 if (count > 0) {
                     list[i] = conv.copy(unreadCount = count)
@@ -291,53 +315,78 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
-     * علامت‌گذاری پیام‌های یک گفتگو به عنوان خوانده‌شده
+     * علامت‌گذاری پیام‌های یک گفتگو به عنوان خوانده‌شده به همراه بروزرسانی SEEN و پشتیبانی از ادغام
      */
-    suspend fun markThreadAsRead(threadId: Long, address: String = "") = withContext(Dispatchers.IO) {
+    suspend fun markThreadAsRead(threadId: Long, address: String = "", mergedAddresses: Set<String> = emptySet()) = withContext(Dispatchers.IO) {
         try {
             val values = ContentValues().apply {
                 put(Telephony.Sms.READ, 1)
+                put(Telephony.Sms.SEEN, 1)
             }
-            val norm = normalizePhoneNumber(address)
-            if (address.isNotBlank() && norm.length >= 7) {
-                context.contentResolver.update(
-                    Telephony.Sms.Inbox.CONTENT_URI,
-                    values,
-                    "(${Telephony.Sms.THREAD_ID} = ? OR ${Telephony.Sms.ADDRESS} LIKE ?) AND ${Telephony.Sms.READ} = 0",
-                    arrayOf(threadId.toString(), "%$norm")
-                )
+
+            val whereParts = mutableListOf<String>()
+            val args = mutableListOf<String>()
+
+            if (threadId > 0) {
+                whereParts.add("${Telephony.Sms.THREAD_ID} = ?")
+                args.add(threadId.toString())
+            }
+
+            val targets = if (mergedAddresses.isNotEmpty()) mergedAddresses else if (address.isNotBlank()) setOf(address) else emptySet()
+
+            for (target in targets) {
+                whereParts.add("${Telephony.Sms.ADDRESS} = ?")
+                args.add(target)
+
+                val norm = normalizePhoneNumber(target)
+                if (norm.length >= 7) {
+                    whereParts.add("${Telephony.Sms.ADDRESS} LIKE ?")
+                    args.add("%$norm")
+                }
+            }
+
+            val selection = if (whereParts.isNotEmpty()) {
+                "(${whereParts.joinToString(" OR ")}) AND ${Telephony.Sms.READ} = 0"
             } else {
-                context.contentResolver.update(
-                    Telephony.Sms.Inbox.CONTENT_URI,
-                    values,
-                    "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.READ} = 0",
-                    arrayOf(threadId.toString())
-                )
+                "${Telephony.Sms.READ} = 0"
             }
+
+            // به‌روزرسانی همزمان جدول‌های رسمی برای اطمینان از پاک شدن عدد ۱ در تمام گوشی‌ها
+            context.contentResolver.update(Telephony.Sms.CONTENT_URI, values, selection, args.toTypedArray())
+            context.contentResolver.update(Telephony.Sms.Inbox.CONTENT_URI, values, selection, args.toTypedArray())
         } catch (e: Throwable) {
             e.printStackTrace()
         }
     }
 
     /**
-     * حذف یک گفتگوی کامل
+     * حذف یک گفتگوی کامل یا تمام سرشماره‌های ادغام‌شده آن
      */
-    suspend fun deleteConversation(threadId: Long, address: String = ""): Boolean = withContext(Dispatchers.IO) {
+    suspend fun deleteConversation(threadId: Long, address: String = "", mergedAddresses: Set<String> = emptySet()): Boolean = withContext(Dispatchers.IO) {
         try {
-            val norm = normalizePhoneNumber(address)
-            val count = if (address.isNotBlank() && norm.length >= 7) {
-                context.contentResolver.delete(
-                    Telephony.Sms.CONTENT_URI,
-                    "${Telephony.Sms.THREAD_ID} = ? OR ${Telephony.Sms.ADDRESS} LIKE ?",
-                    arrayOf(threadId.toString(), "%$norm")
-                )
-            } else {
-                context.contentResolver.delete(
-                    Telephony.Sms.CONTENT_URI,
-                    "${Telephony.Sms.THREAD_ID} = ?",
-                    arrayOf(threadId.toString())
-                )
+            val targets = if (mergedAddresses.isNotEmpty()) mergedAddresses else if (address.isNotBlank()) setOf(address) else emptySet()
+            val whereParts = mutableListOf<String>()
+            val args = mutableListOf<String>()
+
+            if (threadId > 0) {
+                whereParts.add("${Telephony.Sms.THREAD_ID} = ?")
+                args.add(threadId.toString())
             }
+
+            for (target in targets) {
+                whereParts.add("${Telephony.Sms.ADDRESS} = ?")
+                args.add(target)
+                val norm = normalizePhoneNumber(target)
+                if (norm.length >= 7) {
+                    whereParts.add("${Telephony.Sms.ADDRESS} LIKE ?")
+                    args.add("%$norm")
+                }
+            }
+
+            val selection = if (whereParts.isNotEmpty()) whereParts.joinToString(" OR ") else "${Telephony.Sms.THREAD_ID} = ?"
+            val selectionArgs = if (whereParts.isNotEmpty()) args.toTypedArray() else arrayOf(threadId.toString())
+
+            val count = context.contentResolver.delete(Telephony.Sms.CONTENT_URI, selection, selectionArgs)
             count > 0
         } catch (e: Throwable) {
             e.printStackTrace()
@@ -374,31 +423,40 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
-     * دریافت پیام‌های یک گفتگوی مشخص با یکپارچه‌سازی تمام تردهای مرتبط با مخاطب
+     * دریافت پیام‌های یک گفتگوی مشخص با پشتیبانی کامل از ادغام سرشماره‌های هم‌نام
      */
-    suspend fun getMessages(threadId: Long, address: String = ""): List<Message> = withContext(Dispatchers.IO) {
+    suspend fun getMessages(threadId: Long, address: String = "", mergedAddresses: Set<String> = emptySet()): List<Message> = withContext(Dispatchers.IO) {
         val list = mutableListOf<Message>()
         val seenMessageIds = HashSet<Long>()
         try {
             val uri = Telephony.Sms.CONTENT_URI
-            val norm = normalizePhoneNumber(address)
-            val selection: String
-            val selectionArgs: Array<String>
+            val targets = if (mergedAddresses.isNotEmpty()) mergedAddresses else if (address.isNotBlank()) setOf(address) else emptySet()
 
-            if (address.isNotBlank() && norm.length >= 7) {
-                selection = "${Telephony.Sms.THREAD_ID} = ? OR ${Telephony.Sms.ADDRESS} LIKE ?"
-                selectionArgs = arrayOf(threadId.toString(), "%$norm")
-            } else if (address.isNotBlank()) {
-                selection = "${Telephony.Sms.THREAD_ID} = ? OR ${Telephony.Sms.ADDRESS} = ?"
-                selectionArgs = arrayOf(threadId.toString(), address)
-            } else {
-                selection = "${Telephony.Sms.THREAD_ID} = ?"
-                selectionArgs = arrayOf(threadId.toString())
+            val whereParts = mutableListOf<String>()
+            val args = mutableListOf<String>()
+
+            if (threadId > 0) {
+                whereParts.add("${Telephony.Sms.THREAD_ID} = ?")
+                args.add(threadId.toString())
             }
+
+            for (target in targets) {
+                whereParts.add("${Telephony.Sms.ADDRESS} = ?")
+                args.add(target)
+                val norm = normalizePhoneNumber(target)
+                if (norm.length >= 7) {
+                    whereParts.add("${Telephony.Sms.ADDRESS} LIKE ?")
+                    args.add("%$norm")
+                }
+            }
+
+            val selection = if (whereParts.isNotEmpty()) whereParts.joinToString(" OR ") else "${Telephony.Sms.THREAD_ID} = ?"
+            val selectionArgs = if (whereParts.isNotEmpty()) args.toTypedArray() else arrayOf(threadId.toString())
 
             val cursor = context.contentResolver.query(uri, null, selection, selectionArgs, "date ASC")
             cursor?.use {
                 val idCol = it.getColumnIndex(Telephony.Sms._ID)
+                val threadCol = it.getColumnIndex(Telephony.Sms.THREAD_ID)
                 val addressCol = it.getColumnIndex(Telephony.Sms.ADDRESS)
                 val bodyCol = it.getColumnIndex(Telephony.Sms.BODY)
                 val dateCol = it.getColumnIndex(Telephony.Sms.DATE)
@@ -411,6 +469,7 @@ class SmsRepository(private val context: Context) {
                     if (id != 0L) seenMessageIds.add(id)
 
                     val msgAddress = if (addressCol != -1) it.getString(addressCol) ?: "" else ""
+                    val msgThreadId = if (threadCol != -1) it.getLong(threadCol) else threadId
                     val body = if (bodyCol != -1) it.getString(bodyCol) ?: "" else ""
                     val date = if (dateCol != -1) it.getLong(dateCol) else System.currentTimeMillis()
                     val type = if (typeCol != -1) it.getInt(typeCol) else Telephony.Sms.MESSAGE_TYPE_INBOX
@@ -419,7 +478,7 @@ class SmsRepository(private val context: Context) {
                     list.add(
                         Message(
                             id = id,
-                            threadId = threadId,
+                            threadId = msgThreadId,
                             address = msgAddress,
                             body = body,
                             date = date,
@@ -459,6 +518,7 @@ class SmsRepository(private val context: Context) {
                 put(Telephony.Sms.BODY, body)
                 put(Telephony.Sms.DATE, System.currentTimeMillis())
                 put(Telephony.Sms.READ, 1)
+                put(Telephony.Sms.SEEN, 1)
                 put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_SENT)
             }
             context.contentResolver.insert(Telephony.Sms.Sent.CONTENT_URI, values)
@@ -470,7 +530,7 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
-     * اسکن و پالایش دسته‌ای تمام پیامک‌های قدیمی موجود در گوشی با موتور ONNX
+     * اسکن و پالایش دسته‌ای تمام پیامک‌های قدیمی با مصونیت ۱۰۰٪ مخاطبین دفترچه تلفن
      */
     suspend fun scanAndCleanHistoricalSms(
         spamRepository: SpamRepository,
@@ -512,11 +572,13 @@ class SmsRepository(private val context: Context) {
         for (item in messagesToProcess) {
             val (id, address, body) = item
             try {
-                if (spamRepository.isUserWhitelisted(address)) {
+                // مصونیت قطعی: شماره‌های موجود در مخاطبین یا لیست سفید هرگز اسپم نیستند
+                if (isContact(address) || spamRepository.isUserWhitelisted(address)) {
                     scanned++
                     onProgress(ScanProgress(scanned = scanned, total = total, quarantined = quarantined))
                     continue
                 }
+
                 val result = classifier.classify(address, body)
                 if (result.isSpam) {
                     spamRepository.quarantine(address, body, result.spamProbability)
@@ -538,6 +600,9 @@ class SmsRepository(private val context: Context) {
     }
 
     fun getContactName(phoneNumber: String): String? {
+        val alias = aliasRepo.getAliasForAddress(phoneNumber)
+        if (alias != null) return alias.displayName
+
         val map = getContactCache()
         return map[normalizePhoneNumber(phoneNumber)]
     }

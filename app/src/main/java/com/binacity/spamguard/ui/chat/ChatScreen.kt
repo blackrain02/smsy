@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.Telephony
-import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -18,9 +17,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,30 +37,30 @@ import com.binacity.spamguard.data.repository.SmsRepository
 import com.binacity.spamguard.ui.util.DateUtils
 import kotlinx.coroutines.launch
 
-data class SmsCounter(val remaining: Int, val maxSingle: Int, val parts: Int)
+data class SmsCounter(
+    val charCount: Int,
+    val remaining: Int,
+    val parts: Int,
+    val maxSingle: Int
+)
 
 fun calculateSmsCounter(text: String): SmsCounter {
-    if (text.isEmpty()) return SmsCounter(70, 70, 0)
-    val isUnicode = text.any { it.code > 127 }
-    val singleLimit = if (isUnicode) 70 else 160
-    val concatLimit = if (isUnicode) 67 else 153
-    val len = text.length
+    val isGsm7 = text.all { c -> c.code < 128 }
+    val maxSingle = if (isGsm7) 160 else 70
+    val maxMultipart = if (isGsm7) 153 else 67
 
-    return if (len <= singleLimit) {
-        SmsCounter(
-            remaining = singleLimit - len,
-            maxSingle = singleLimit,
-            parts = 1
-        )
-    } else {
-        val parts = (len + concatLimit - 1) / concatLimit
-        val remaining = (parts * concatLimit) - len
-        SmsCounter(
-            remaining = remaining,
-            maxSingle = concatLimit,
-            parts = parts
-        )
+    val len = text.length
+    if (len == 0) {
+        return SmsCounter(charCount = 0, remaining = maxSingle, parts = 1, maxSingle = maxSingle)
     }
+
+    if (len <= maxSingle) {
+        return SmsCounter(charCount = len, remaining = maxSingle - len, parts = 1, maxSingle = maxSingle)
+    }
+
+    val parts = ((len - 1) / maxMultipart) + 1
+    val remaining = (parts * maxMultipart) - len
+    return SmsCounter(charCount = len, remaining = remaining, parts = parts, maxSingle = maxSingle)
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -71,7 +70,8 @@ fun ChatScreen(
     address: String,
     contactName: String?,
     smsRepository: SmsRepository,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    mergedAddresses: Set<String> = emptySet()
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -82,18 +82,18 @@ fun ChatScreen(
     val listState = rememberLazyListState()
 
     // بارگذاری اولیه پیام‌ها و علامت‌گذاری به عنوان خوانده‌شده
-    LaunchedEffect(threadId, address) {
-        messages = smsRepository.getMessages(threadId, address)
-        smsRepository.markThreadAsRead(threadId, address)
+    LaunchedEffect(threadId, address, mergedAddresses) {
+        messages = smsRepository.getMessages(threadId, address, mergedAddresses)
+        smsRepository.markThreadAsRead(threadId, address, mergedAddresses)
     }
 
     // لیسنر بلادرنگ برای دریافت پیامک‌های جدید به محض ورود به سیستم‌عامل
-    DisposableEffect(threadId, address) {
+    DisposableEffect(threadId, address, mergedAddresses) {
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
                 scope.launch {
-                    messages = smsRepository.getMessages(threadId, address)
-                    smsRepository.markThreadAsRead(threadId, address)
+                    messages = smsRepository.getMessages(threadId, address, mergedAddresses)
+                    smsRepository.markThreadAsRead(threadId, address, mergedAddresses)
                 }
             }
         }
@@ -107,6 +107,10 @@ fun ChatScreen(
                 context.contentResolver.unregisterContentObserver(observer)
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+            // تضمین علامت‌گذاری خوانده‌شده هنگام خروج از صفحه چت
+            scope.launch {
+                smsRepository.markThreadAsRead(threadId, address, mergedAddresses)
             }
         }
     }
@@ -129,7 +133,14 @@ fun ChatScreen(
                             fontSize = 16.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        if (contactName != null) {
+                        if (mergedAddresses.size > 1) {
+                            Text(
+                                text = "${mergedAddresses.size} merged senders",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        } else if (contactName != null) {
                             Text(
                                 text = address,
                                 fontSize = 12.sp,
@@ -148,16 +159,18 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    if (address.isNotBlank() && address != "Unknown") {
-                        IconButton(onClick = {
-                            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-                                data = Uri.parse("tel:$address")
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    // دکمه تماس مستقیم با فرستنده پیامک
+                    if (address.any { it.isDigit() }) {
+                        IconButton(
+                            onClick = {
+                                val callIntent = Intent(Intent.ACTION_DIAL).apply {
+                                    data = Uri.parse("tel:$address")
+                                }
+                                context.startActivity(callIntent)
                             }
-                            context.startActivity(dialIntent)
-                        }) {
+                        ) {
                             Icon(
-                                Icons.Default.Call,
+                                Icons.Default.Phone,
                                 contentDescription = "Call",
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -178,66 +191,69 @@ fun ChatScreen(
                 tonalElevation = 3.dp,
                 color = MaterialTheme.colorScheme.surface
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextField(
-                        value = inputText,
-                        onValueChange = { inputText = it },
-                        placeholder = { Text("Text message", fontSize = 14.sp) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(24.dp),
-                        textStyle = LocalTextStyle.current.copy(
-                            textDirection = TextDirection.Content,
-                            fontSize = 14.sp
-                        ),
-                        colors = TextFieldDefaults.colors(
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextField(
+                            value = inputText,
+                            onValueChange = { inputText = it },
+                            placeholder = { Text("Text message", fontSize = 14.sp) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(24.dp),
+                            textStyle = LocalTextStyle.current.copy(
+                                textDirection = TextDirection.Content,
+                                fontSize = 14.sp
+                            ),
+                            colors = TextFieldDefaults.colors(
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
                         )
-                    )
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
-                    val counter = remember(inputText) { calculateSmsCounter(inputText) }
-                    if (inputText.isNotEmpty()) {
-                        Text(
-                            text = "${counter.remaining}/${counter.maxSingle}" + if (counter.parts > 1) " (${counter.parts})" else "",
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(end = 4.dp)
-                        )
-                    }
+                        // شمارنده پیامک پویا بر اساس طول کاراکتر و صفحات پیامک
+                        val counter = remember(inputText) { calculateSmsCounter(inputText) }
+                        if (inputText.isNotEmpty()) {
+                            Text(
+                                text = "${counter.remaining}/${counter.maxSingle}" + if (counter.parts > 1) " (${counter.parts})" else "",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                        }
 
-                    IconButton(
-                        onClick = {
-                            if (inputText.isNotBlank()) {
-                                val textToSend = inputText
-                                inputText = ""
-                                scope.launch {
-                                    val success = smsRepository.sendMessage(address, textToSend)
-                                    if (success) {
-                                        messages = smsRepository.getMessages(threadId, address)
+                        IconButton(
+                            onClick = {
+                                if (inputText.isNotBlank()) {
+                                    val textToSend = inputText
+                                    inputText = ""
+                                    scope.launch {
+                                        val success = smsRepository.sendMessage(address, textToSend)
+                                        if (success) {
+                                            messages = smsRepository.getMessages(threadId, address, mergedAddresses)
+                                        }
                                     }
                                 }
-                            }
-                        },
-                        enabled = inputText.isNotBlank(),
-                        modifier = Modifier.background(
-                            if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                            RoundedCornerShape(50)
-                        )
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                            },
+                            enabled = inputText.isNotBlank(),
+                            modifier = Modifier.background(
+                                if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(50)
+                            )
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send",
+                                tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
@@ -272,6 +288,17 @@ fun ChatScreen(
                             )
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                            // در صورتی که سرشماره‌ها ادغام شده باشند، سرشماره دقیق ارسال‌کننده نمایش داده می‌شود
+                            if (mergedAddresses.size > 1 && !msg.isSent && msg.address.isNotBlank()) {
+                                Text(
+                                    text = msg.address,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                            }
+
                             Text(
                                 text = msg.body,
                                 color = textColor,
@@ -304,13 +331,12 @@ fun ChatScreen(
                     TextButton(
                         onClick = {
                             clipboardManager.setText(AnnotatedString(target.body))
-                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                             messageForAction = null
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.width(12.dp))
                             Text("Copy text", color = MaterialTheme.colorScheme.onSurface)
                         }
@@ -320,7 +346,7 @@ fun ChatScreen(
                         onClick = {
                             scope.launch {
                                 smsRepository.deleteMessage(target.id)
-                                messages = smsRepository.getMessages(threadId, address)
+                                messages = smsRepository.getMessages(threadId, address, mergedAddresses)
                                 messageForAction = null
                             }
                         },

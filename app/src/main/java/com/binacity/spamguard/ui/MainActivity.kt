@@ -29,7 +29,12 @@ import com.binacity.spamguard.ui.compose.NewMessageScreen
 sealed class Screen {
     object Conversations : Screen()
     object Quarantine : Screen()
-    data class Chat(val threadId: Long, val address: String, val contactName: String?) : Screen()
+    data class Chat(
+        val threadId: Long,
+        val address: String,
+        val contactName: String?,
+        val mergedAddresses: Set<String> = emptySet()
+    ) : Screen()
     object NewMessage : Screen()
 }
 
@@ -105,12 +110,15 @@ class MainActivity : ComponentActivity() {
                                     onRequestPermissions = { checkAndRequestPermissions() },
                                     onNewMessageClick = { currentScreen = Screen.NewMessage },
                                     onConversationClick = { conv ->
-                                        currentScreen = Screen.Chat(conv.threadId, conv.address, conv.contactName)
+                                        currentScreen = Screen.Chat(conv.threadId, conv.address, conv.contactName, conv.mergedAddresses)
                                     }
                                 )
                             }
                             is Screen.Quarantine -> {
-                                QuarantineScreen(spamRepository = spamRepository)
+                                QuarantineScreen(
+                                    spamRepository = spamRepository,
+                                    smsRepository = smsRepository
+                                )
                             }
                             is Screen.Chat -> {
                                 ChatScreen(
@@ -118,7 +126,8 @@ class MainActivity : ComponentActivity() {
                                     address = screen.address,
                                     contactName = screen.contactName,
                                     smsRepository = smsRepository,
-                                    onBack = { currentScreen = Screen.Conversations }
+                                    onBack = { currentScreen = Screen.Conversations },
+                                    mergedAddresses = screen.mergedAddresses
                                 )
                             }
                             is Screen.NewMessage -> {

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,7 +54,7 @@ fun NewMessageScreen(
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
-    // بارگذاری مخاطبین بر اساس متن جستجو
+    // بارگذاری بلادرنگ مخاطبین بر اساس متن جستجو (حروف فارسی، انگلیسی و اعداد)
     val suggestedContacts by produceState(initialValue = emptyList<ContactItem>(), key1 = recipientQuery) {
         value = smsRepository.getContacts(recipientQuery)
     }
@@ -210,25 +211,25 @@ fun NewMessageScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // بخش انتخاب و ورود گیرندگان (To)
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            // بخش چیپ‌های گیرندگان انتخاب شده (To)
+            if (recipients.isNotEmpty()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "To",
-                            fontWeight = FontWeight.SemiBold,
+                            "To:",
+                            fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
-                            fontSize = 14.sp
+                            fontSize = 13.sp
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        // چیپ‌های مخاطبین انتخاب شده به همراه فیلد متنی جستجو
+                        Spacer(modifier = Modifier.width(10.dp))
                         FlowRow(
                             modifier = Modifier.weight(1f),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -260,36 +261,70 @@ fun NewMessageScreen(
                                     shape = RoundedCornerShape(16.dp)
                                 )
                             }
+                        }
+                    }
+                }
+            }
 
-                            TextField(
-                                value = recipientQuery,
-                                onValueChange = { recipientQuery = it },
-                                placeholder = {
-                                    if (recipients.isEmpty()) {
-                                        Text("Type name or phone number", fontSize = 13.sp)
-                                    }
-                                },
-                                modifier = Modifier
-                                    .widthIn(min = 120.dp)
-                                    .height(48.dp),
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = KeyboardType.Phone,
-                                    imeAction = ImeAction.Done
-                                ),
-                                keyboardActions = KeyboardActions(
-                                    onDone = {
-                                        if (recipientQuery.isNotBlank()) {
-                                            addManualNumber(recipientQuery)
-                                        }
-                                    }
-                                ),
-                                colors = TextFieldDefaults.colors(
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent,
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent
-                                )
+            // فیلد اختصاصی و تمام‌عرض جستجوی مخاطب (با کیبورد متنی استاندارد فارسی و انگلیسی)
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextField(
+                        value = recipientQuery,
+                        onValueChange = { recipientQuery = it },
+                        placeholder = {
+                            Text(
+                                "Search name or type phone number...",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Text, // کیبورد متنی کامل برای تایپ نام فارسی و انگلیسی
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                if (recipientQuery.isNotBlank()) {
+                                    addManualNumber(recipientQuery)
+                                }
+                            }
+                        ),
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        )
+                    )
+
+                    if (recipientQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { recipientQuery = "" },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -356,6 +391,23 @@ fun NewMessageScreen(
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
                                 thickness = 0.5.dp
                             )
+                        }
+                    }
+
+                    if (filteredContacts.isEmpty() && !canAddDirectNumber && recipientQuery.isNotBlank()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "No contacts matching '$recipientQuery'",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
                     }
 

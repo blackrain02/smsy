@@ -5,14 +5,18 @@ import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.database.ContentObserver
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.provider.Telephony
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -44,7 +48,7 @@ import com.binacity.spamguard.data.repository.SpamRepository
 import com.binacity.spamguard.ui.util.DateUtils
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ConversationListScreen(
     smsRepository: SmsRepository,
@@ -67,6 +71,7 @@ fun ConversationListScreen(
     var showRestrictedHelpDialog by remember { mutableStateOf(false) }
     var conversationToDelete by remember { mutableStateOf<Conversation?>(null) }
     var selectedConversationForAction by remember { mutableStateOf<Conversation?>(null) }
+    var conversationToMerge by remember { mutableStateOf<Conversation?>(null) }
     val scope = rememberCoroutineScope()
 
     val hasSmsPermission = ContextCompat.checkSelfPermission(
@@ -115,6 +120,29 @@ fun ConversationListScreen(
         }
     }
 
+    // لیسنر بلادرنگ تغییرات پیامک‌ها در سیستم‌عامل برای همگام‌سازی فوری تعداد خوانده‌نشده
+    DisposableEffect(Unit) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                if (hasSmsPermission) {
+                    refreshList()
+                }
+            }
+        }
+        try {
+            context.contentResolver.registerContentObserver(Telephony.Sms.CONTENT_URI, true, observer)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        onDispose {
+            try {
+                context.contentResolver.unregisterContentObserver(observer)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     val filteredConversations = remember(conversations, searchQuery) {
         if (searchQuery.isBlank()) conversations
         else {
@@ -122,7 +150,8 @@ fun ConversationListScreen(
             conversations.filter {
                 (it.contactName?.lowercase()?.contains(q) == true) ||
                 it.address.lowercase().contains(q) ||
-                it.snippet.lowercase().contains(q)
+                it.snippet.lowercase().contains(q) ||
+                it.mergedAddresses.any { num -> num.lowercase().contains(q) }
             }
         }
     }
@@ -138,21 +167,21 @@ fun ConversationListScreen(
                 actions = {
                     IconButton(
                         onClick = {
-                            if (!isDefaultApp) {
-                                requestDefaultSmsRole(context, defaultRoleLauncher::launch)
-                            } else {
+                            if (!isScanning) {
                                 isScanning = true
                                 scope.launch {
                                     val classifier = SpamClassifier.getInstance(context)
                                     val result = smsRepository.scanAndCleanHistoricalSms(
                                         spamRepository = spamRepository,
                                         classifier = classifier,
-                                        onProgress = { progress -> scanProgress = progress }
+                                        onProgress = { progress ->
+                                            scanProgress = progress
+                                        }
                                     )
-                                    refreshList()
                                     isScanning = false
                                     finalResult = result
                                     showResultDialog = true
+                                    refreshList()
                                 }
                             }
                         }
@@ -172,7 +201,7 @@ fun ConversationListScreen(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
-                Icon(Icons.Default.Edit, contentDescription = "New Message")
+                Icon(Icons.Default.Add, contentDescription = "New Conversation")
             }
         },
         modifier = modifier
@@ -182,110 +211,135 @@ fun ConversationListScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // بنر راهنمای دسترسی پیام‌رسان پیش‌فرض
+            // بنر تنظیم به عنوان برنامه پیش‌فرض
             if (!isDefaultApp) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
-                    ),
-                    shape = RoundedCornerShape(0.dp),
-                    modifier = Modifier.fillMaxWidth()
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "Default SMS App Required",
+                                "Set as default SMS app",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onErrorContainer
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Required for offline AI spam protection",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "Android requires setting Smsy as your default SMS handler to delete messages and block spam.",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.85f)
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = { requestDefaultSmsRole(context, defaultRoleLauncher::launch) },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                            ) {
-                                Text("Set as Default", fontSize = 12.sp)
-                            }
-                            OutlinedButton(
-                                onClick = { openAppSettings(context) },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("App Settings", fontSize = 12.sp)
-                            }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                requestDefaultSmsRole(context) { intent ->
+                                    defaultRoleLauncher.launch(intent)
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Set as Default", fontSize = 12.sp)
                         }
                     }
                 }
             }
 
-            // فیلد جستجوی زنده پیامک‌ها
-            TextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Search messages or contacts...", fontSize = 14.sp) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                trailingIcon = {
-                    if (searchQuery.isNotBlank()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear")
-                        }
-                    }
-                },
+            // فیلد جستجو در گفتگوها
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
-                singleLine = true,
-                colors = TextFieldDefaults.colors(
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            )
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search messages and contacts...", fontSize = 13.sp) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        )
+                    )
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { searchQuery = "" },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
 
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // لیست پیامک‌ها
             if (!hasSmsPermission) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
+                    modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                        modifier = Modifier.padding(24.dp)
                     ) {
                         Icon(
-                            Icons.Default.Lock,
+                            Icons.Default.Security,
                             contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(56.dp)
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
                         Text(
-                            "SMS permissions are required to view and manage messages.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium
+                            "SMS Permission Required",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Smsy runs 100% locally with zero internet access to guard your privacy.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(18.dp))
                         Button(onClick = onRequestPermissions) {
-                            Text("Grant Permissions")
+                            Text("Grant Permission")
                         }
                     }
                 }
@@ -295,13 +349,14 @@ fun ConversationListScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        if (searchQuery.isNotBlank()) "No matching conversations" else "No conversations yet",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        if (searchQuery.isNotBlank()) "No messages match '$searchQuery'" else "No messages found",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp
                     )
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(filteredConversations, key = { "${it.threadId}_${it.address}" }) { item ->
+                    items(filteredConversations, key = { "${it.threadId}_${it.address}_${it.aliasId ?: ""}" }) { item ->
                         ConversationItem(
                             conversation = item,
                             onClick = { onConversationClick(item) },
@@ -316,8 +371,7 @@ fun ConversationListScreen(
         }
     }
 
-
-    // منوی عملیات گفتگو (سنجاق کردن / حذف)
+    // منوی عملیات گفتگو (سنجاق کردن / ادغام سرشماره‌ها / حذف)
     if (selectedConversationForAction != null) {
         val target = selectedConversationForAction!!
         AlertDialog(
@@ -355,6 +409,40 @@ fun ConversationListScreen(
                             Spacer(modifier = Modifier.width(14.dp))
                             Text(
                                 if (target.isPinned) "Unpin from top" else "Pin to top",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
+                    // گزینه تنظیم نام و ادغام سرشماره‌ها
+                    TextButton(
+                        onClick = {
+                            conversationToMerge = target
+                            selectedConversationForAction = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 12.dp, horizontal = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CallMerge,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                if (target.aliasId != null) "Edit Name & Merged Senders" else "Set Name & Merge Senders",
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Medium
@@ -405,6 +493,139 @@ fun ConversationListScreen(
         )
     }
 
+    // دیالوگ نام‌گذاری و ادغام سرشماره‌ها
+    if (conversationToMerge != null) {
+        val target = conversationToMerge!!
+        var aliasName by remember(target) {
+            mutableStateOf(target.contactName ?: "")
+        }
+        var currentNumbers by remember(target) {
+            mutableStateOf(
+                if (target.mergedAddresses.isNotEmpty()) target.mergedAddresses
+                else setOf(target.address)
+            )
+        }
+        var newNumberInput by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { conversationToMerge = null },
+            title = { Text("Name & Merge Senders", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "Set a custom name (e.g. Bank Mellat) and merge multiple numbers into one unified thread.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = aliasName,
+                        onValueChange = { aliasName = it },
+                        label = { Text("Custom Name (e.g. Bank Mellat)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text("Merged Numbers (${currentNumbers.size}):", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        for (num in currentNumbers) {
+                            InputChip(
+                                selected = false,
+                                onClick = {},
+                                label = { Text(num, fontSize = 12.sp) },
+                                trailingIcon = {
+                                    if (currentNumbers.size > 1) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Remove",
+                                            modifier = Modifier
+                                                .size(14.dp)
+                                                .clickable {
+                                                    currentNumbers = currentNumbers - num
+                                                }
+                                        )
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = newNumberInput,
+                            onValueChange = { newNumberInput = it },
+                            placeholder = { Text("Add number...", fontSize = 12.sp) },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        IconButton(
+                            onClick = {
+                                val clean = newNumberInput.trim()
+                                if (clean.isNotBlank()) {
+                                    currentNumbers = currentNumbers + clean
+                                    newNumberInput = ""
+                                }
+                            },
+                            enabled = newNumberInput.isNotBlank()
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (aliasName.isNotBlank() && currentNumbers.isNotEmpty()) {
+                            smsRepository.aliasRepository.saveAlias(
+                                displayName = aliasName,
+                                numbers = currentNumbers,
+                                existingId = target.aliasId
+                            )
+                            conversationToMerge = null
+                            refreshList()
+                        }
+                    },
+                    enabled = aliasName.isNotBlank() && currentNumbers.isNotEmpty()
+                ) {
+                    Text("Save & Merge")
+                }
+            },
+            dismissButton = {
+                Row {
+                    if (target.aliasId != null) {
+                        TextButton(
+                            onClick = {
+                                smsRepository.aliasRepository.deleteAlias(target.aliasId)
+                                conversationToMerge = null
+                                refreshList()
+                            }
+                        ) {
+                            Text("Unmerge", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    TextButton(onClick = { conversationToMerge = null }) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        )
+    }
+
     // دیالوگ تایید حذف گفتگو
     if (conversationToDelete != null) {
         val target = conversationToDelete!!
@@ -418,7 +639,7 @@ fun ConversationListScreen(
                 Button(
                     onClick = {
                         scope.launch {
-                            smsRepository.deleteConversation(target.threadId, target.address)
+                            smsRepository.deleteConversation(target.threadId, target.address, target.mergedAddresses)
                             conversationToDelete = null
                             refreshList()
                         }
@@ -586,15 +807,38 @@ fun ConversationItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = conversation.contactName ?: conversation.address,
-                    fontWeight = if (isUnread) FontWeight.Bold else FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
-                )
+                ) {
+                    Text(
+                        text = conversation.contactName ?: conversation.address,
+                        fontWeight = if (isUnread) FontWeight.Bold else FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    if (conversation.mergedAddresses.size > 1) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.secondaryContainer,
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "${conversation.mergedAddresses.size} senders",
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.width(8.dp))
 
