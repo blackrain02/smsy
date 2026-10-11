@@ -1,0 +1,31 @@
+{
+  "senders": [
+    "bank",
+    "melli",
+    "mellat",
+    "tejarat",
+    "sepah",
+    "pasargad",
+    "saman",
+    "parsian",
+    "bale",
+    "divar",
+    "snapp",
+    "tapsi",
+    "adliran",
+    "mci",
+    "irancell"
+  ],
+  "keywords": [
+    "رمز پویا",
+    "رمز یکبار مصرف",
+    "کد تایید",
+    "کد ورود",
+    "اعتبارسنجی",
+    "ابلاغیه",
+    "واریز به حساب",
+    "برداشت از حساب",
+    "مانده حساب",
+    "پیگیری تراکنش"
+  ]
+}

@@ -1,0 +1,21 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- بدنه حباب پیامک مدرن -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M38,32h32c6.63,0 12,5.37 12,12v16c0,6.63 -5.37,12 -12,12H48l-10,9v-9c-5.52,0 -10,-4.48 -10,-10V44c0,-6.63 5.37,-12 10,-12z" />
+
+    <!-- نشانگر سپر هوش مصنوعی و امنیت داخلی -->
+    <path
+        android:fillColor="#FF0284C7"
+        android:pathData="M54,42l9,3.5c0,6.5 -4.5,12.5 -9,14.5c-4.5,-2 -9,-8 -9,-14.5z" />
+
+    <!-- ستاره درخشش / هوش مصنوعی در مرکز سپر -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,46c0.5,2 1.5,3 3.5,3.5c-2,0.5 -3,1.5 -3.5,3.5c-0.5,-2 -1.5,-3 -3.5,-3.5c2,-0.5 3,-1.5 3.5,-3.5z" />
+</vector>
