@@ -103,7 +103,7 @@
             android:name=".receiver.SmsDeliveryReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.binacity.spamguard.ACTION_SMS_DELIVERED" />
+                <action android:name="com.blackrain02.spamguard.ACTION_SMS_DELIVERED" />
             </intent-filter>
         </receiver>
 

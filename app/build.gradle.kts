@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.binacity.spamguard"
+    namespace = "com.blackrain02.spamguard"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.binacity.spamguard"
+        applicationId = "com.blackrain02.spamguard"
         minSdk = 26
         targetSdk = 35
         versionCode = 13
@@ -22,9 +22,22 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("release.jks")
+            storePassword = "Blackrain02@Smsy2026"
+            keyAlias = "blackrain02_key"
+            keyPassword = "Blackrain02@Smsy2026"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
