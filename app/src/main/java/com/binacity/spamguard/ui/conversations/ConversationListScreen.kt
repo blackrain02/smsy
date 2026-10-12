@@ -496,13 +496,21 @@ fun ConversationListScreen(
                     )
                 }
             } else {
+                val uniqueConversations = remember(filteredConversations) {
+                    val seen = HashSet<String>()
+                    filteredConversations.filter { conv ->
+                        val key = conv.aliasId ?: "${conv.threadId}_${conv.address}"
+                        seen.add(key)
+                    }
+                }
+
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(
-                        items = filteredConversations,
-                        key = { it.aliasId ?: it.address },
+                        items = uniqueConversations,
+                        key = { it.aliasId ?: "${it.threadId}_${it.address}" },
                         contentType = { "conversation" }
                     ) { item ->
                         val isSelected = selectedConversations.contains(item)

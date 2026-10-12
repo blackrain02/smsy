@@ -398,27 +398,7 @@ class SmsRepository(private val context: Context) {
                 put(Telephony.Sms.SEEN, 1)
             }
 
-            // 1. علامت‌گذاری صریح از طریق سیستم Conversation Provider اندروید
-            if (threadId > 0) {
-                try {
-                    context.contentResolver.update(
-                        android.net.Uri.parse("content://sms/conversations/$threadId"),
-                        values,
-                        null,
-                        null
-                    )
-                } catch (ignored: Throwable) {}
-                try {
-                    context.contentResolver.update(
-                        Telephony.Sms.CONTENT_URI,
-                        values,
-                        "${Telephony.Sms.THREAD_ID} = ?",
-                        arrayOf(threadId.toString())
-                    )
-                } catch (ignored: Throwable) {}
-            }
-
-            // 2. استخراج Primary Key تمام پیامک‌های خوانده‌نشده مرتبط جهت بروزرسانی قطعی با ContentUris
+            // استخراج Primary Key پیامک‌های واقعاً خوانده‌نشده
             val unreadIds = mutableListOf<Long>()
             try {
                 val idCursor = context.contentResolver.query(
@@ -452,7 +432,32 @@ class SmsRepository(private val context: Context) {
                 e.printStackTrace()
             }
 
-            // بروزرسانی مستقیم تک‌تک آیدی‌ها با URI اختصاصی (بدون هیچ خطای SQLite OEM)
+            // اگر هیچ پیامک خوانده‌نشده‌ای وجود ندارد، نیازی به آپدیت بیهوده دیتابیس و تحریک ContentObserver نیست
+            if (unreadIds.isEmpty()) {
+                return@withContext
+            }
+
+            // 1. علامت‌گذاری صریح از طریق سیستم Conversation Provider اندروید
+            if (threadId > 0) {
+                try {
+                    context.contentResolver.update(
+                        android.net.Uri.parse("content://sms/conversations/$threadId"),
+                        values,
+                        "${Telephony.Sms.READ} = 0 OR ${Telephony.Sms.READ} IS NULL",
+                        null
+                    )
+                } catch (ignored: Throwable) {}
+                try {
+                    context.contentResolver.update(
+                        Telephony.Sms.CONTENT_URI,
+                        values,
+                        "${Telephony.Sms.THREAD_ID} = ? AND (${Telephony.Sms.READ} = 0 OR ${Telephony.Sms.READ} IS NULL)",
+                        arrayOf(threadId.toString())
+                    )
+                } catch (ignored: Throwable) {}
+            }
+
+            // 2. بروزرسانی مستقیم تک‌تک آیدی‌های خوانده‌نشده با URI اختصاصی
             for (msgId in unreadIds) {
                 try {
                     val itemUri = ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, msgId)
@@ -462,30 +467,6 @@ class SmsRepository(private val context: Context) {
                     val inboxItemUri = ContentUris.withAppendedId(Telephony.Sms.Inbox.CONTENT_URI, msgId)
                     context.contentResolver.update(inboxItemUri, values, null, null)
                 } catch (ignored: Throwable) {}
-            }
-
-            // 3. بروزرسانی تکمیلی بر اساس تطبیق شماره و سرشماره‌های کوتاه (Shortcodes)
-            for (target in targets) {
-                try {
-                    context.contentResolver.update(
-                        Telephony.Sms.CONTENT_URI,
-                        values,
-                        "${Telephony.Sms.ADDRESS} = ?",
-                        arrayOf(target)
-                    )
-                } catch (ignored: Throwable) {}
-
-                val norm = normalizePhoneNumber(target)
-                if (norm.length >= 7) {
-                    try {
-                        context.contentResolver.update(
-                            Telephony.Sms.CONTENT_URI,
-                            values,
-                            "${Telephony.Sms.ADDRESS} LIKE ?",
-                            arrayOf("%$norm")
-                        )
-                    } catch (ignored: Throwable) {}
-                }
             }
         } catch (e: Throwable) {
             e.printStackTrace()
@@ -618,7 +599,7 @@ class SmsRepository(private val context: Context) {
      */
     suspend fun getMessages(threadId: Long, address: String = "", mergedAddresses: Set<String> = emptySet()): List<Message> = withContext(Dispatchers.IO) {
         val list = mutableListOf<Message>()
-        val seenMessageIds = HashSet<Long>()
+        val seenMessageIds = HashSet<String>()
         try {
             val uri = Telephony.Sms.CONTENT_URI
             val targets = if (mergedAddresses.isNotEmpty()) mergedAddresses else if (address.isNotBlank()) setOf(address) else emptySet()
@@ -656,13 +637,15 @@ class SmsRepository(private val context: Context) {
 
                 while (it.moveToNext()) {
                     val id = if (idCol != -1) it.getLong(idCol) else 0L
-                    if (id != 0L && seenMessageIds.contains(id)) continue
-                    if (id != 0L) seenMessageIds.add(id)
+                    val date = if (dateCol != -1) it.getLong(dateCol) else System.currentTimeMillis()
+                    val body = if (bodyCol != -1) it.getString(bodyCol) ?: "" else ""
+                    val uniqueMsgKey = if (id > 0) id.toString() else "${date}_${body.hashCode()}"
+
+                    if (seenMessageIds.contains(uniqueMsgKey)) continue
+                    seenMessageIds.add(uniqueMsgKey)
 
                     val msgAddress = if (addressCol != -1) it.getString(addressCol) ?: "" else ""
                     val msgThreadId = if (threadCol != -1) it.getLong(threadCol) else threadId
-                    val body = if (bodyCol != -1) it.getString(bodyCol) ?: "" else ""
-                    val date = if (dateCol != -1) it.getLong(dateCol) else System.currentTimeMillis()
                     val type = if (typeCol != -1) it.getInt(typeCol) else Telephony.Sms.MESSAGE_TYPE_INBOX
                     val isRead = if (readCol != -1) it.getInt(readCol) == 1 else true
 

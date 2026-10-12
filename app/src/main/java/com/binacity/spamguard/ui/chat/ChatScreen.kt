@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.sp
 import com.binacity.spamguard.data.model.Message
 import com.binacity.spamguard.data.repository.SmsRepository
 import com.binacity.spamguard.ui.util.DateUtils
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class SmsCounter(
@@ -95,11 +97,19 @@ fun ChatScreen(
 
     // لیسنر بلادرنگ برای دریافت پیامک‌های جدید به محض ورود به سیستم‌عامل
     DisposableEffect(threadId, address, mergedAddresses) {
+        var debounceJob: Job? = null
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
-                scope.launch {
-                    messages = smsRepository.getMessages(threadId, address, mergedAddresses)
-                    smsRepository.markThreadAsRead(threadId, address, mergedAddresses)
+                debounceJob?.cancel()
+                debounceJob = scope.launch {
+                    delay(500)
+                    try {
+                        messages = smsRepository.getMessages(threadId, address, mergedAddresses)
+                        // فقط بروزرسانی کش درون حافظه جهت جلوگیری از لوپ اعلان بی‌پایان به دیتابیس
+                        smsRepository.markKeyAsReadInMemory(address, mergedAddresses)
+                    } catch (e: Throwable) {
+                        e.printStackTrace()
+                    }
                 }
             }
         }
@@ -109,6 +119,7 @@ fun ChatScreen(
             e.printStackTrace()
         }
         onDispose {
+            debounceJob?.cancel()
             try {
                 context.contentResolver.unregisterContentObserver(observer)
             } catch (e: Exception) {
@@ -123,11 +134,15 @@ fun ChatScreen(
     var isInitialScrollDone by remember { mutableStateOf(false) }
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            if (!isInitialScrollDone) {
-                listState.scrollToItem(messages.size - 1)
-                isInitialScrollDone = true
-            } else {
-                listState.animateScrollToItem(messages.size - 1)
+            try {
+                if (!isInitialScrollDone) {
+                    listState.scrollToItem(messages.size - 1)
+                    isInitialScrollDone = true
+                } else {
+                    listState.animateScrollToItem(messages.size - 1)
+                }
+            } catch (e: Throwable) {
+                // نادیده گرفتن انصراف انیمیشن حین ترنزیشن صفحات
             }
         }
     }
@@ -315,6 +330,14 @@ fun ChatScreen(
             }
         }
     ) { padding ->
+        val uniqueMessages = remember(messages) {
+            val seen = HashSet<String>()
+            messages.filter { msg ->
+                val key = if (msg.id > 0) msg.id.toString() else "${msg.date}_${msg.body.hashCode()}"
+                seen.add(key)
+            }
+        }
+
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -323,7 +346,7 @@ fun ChatScreen(
                 .padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(messages, key = { it.id }) { msg ->
+            items(uniqueMessages, key = { if (it.id > 0) it.id else "${it.date}_${it.body.hashCode()}" }) { msg ->
                 val alignment = if (msg.isSent) Alignment.CenterEnd else Alignment.CenterStart
                 val bg = if (msg.isSent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                 val textColor = if (msg.isSent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant

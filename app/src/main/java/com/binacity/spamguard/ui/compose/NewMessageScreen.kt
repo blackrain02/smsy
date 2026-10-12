@@ -345,7 +345,7 @@ fun NewMessageScreen(
             // لیست انتخاب مخاطبین با پشتیبانی از شروع مستقیم چت و انتخاب گروهی
             val filteredContacts = remember(suggestedContacts, recipients) {
                 val selectedNumbers = recipients.map { it.number }.toSet()
-                suggestedContacts.filter { !selectedNumbers.contains(it.number) }
+                suggestedContacts.filter { !selectedNumbers.contains(it.number) }.distinctBy { it.number }
             }
 
             val trimmedQuery = recipientQuery.trim()

@@ -71,7 +71,11 @@ object NotificationHelper {
             .setAutoCancel(true)
             .build()
 
-        manager.notify(messageId, messageNotification)
-        manager.notify(summaryId, summaryNotification)
+        try {
+            manager.notify(messageId, messageNotification)
+            manager.notify(summaryId, summaryNotification)
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
     }
 }
