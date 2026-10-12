@@ -448,7 +448,7 @@ fun ChatScreen(
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
                                             Text(
-                                                text = "کد: $otpCode",
+                                                text = if (strings.isFa) "کد: $otpCode" else "Code: $otpCode",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 12.sp,
                                                 color = MaterialTheme.colorScheme.primary
@@ -458,23 +458,23 @@ fun ChatScreen(
                                             TextButton(
                                                 onClick = {
                                                     clipboardManager.setText(AnnotatedString(otpCode))
-                                                    Toast.makeText(context, "کد تایید کپی شد", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, if (strings.isFa) "کد تایید کپی شد" else "Verification code copied", Toast.LENGTH_SHORT).show()
                                                 },
                                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
-                                                Text("کپی", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text(if (strings.isFa) "کپی" else "Copy", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                             }
                                             TextButton(
                                                 onClick = {
                                                     scope.launch {
                                                         smsRepository.deleteMessage(msg.id)
                                                         messages = smsRepository.getMessages(threadId, address, mergedAddresses)
-                                                        Toast.makeText(context, "پیامک حاوی کد تایید حذف شد", Toast.LENGTH_SHORT).show()
+                                                        Toast.makeText(context, if (strings.isFa) "پیامک حاوی کد تایید حذف شد" else "Verification message deleted", Toast.LENGTH_SHORT).show()
                                                     }
                                                 },
                                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
-                                                Text("حذف پیام", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                                Text(if (strings.isFa) "حذف پیام" else "Delete", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
                                             }
                                         }
                                     }
@@ -521,7 +521,7 @@ fun ChatScreen(
         val target = messageForAction!!
         AlertDialog(
             onDismissRequest = { messageForAction = null },
-            title = { Text("گزینه‌های پیام", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            title = { Text(strings.messageOptions, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = {
                 Column {
                     TextButton(
@@ -534,7 +534,7 @@ fun ChatScreen(
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.width(12.dp))
-                            Text("کپی متن پیام", color = MaterialTheme.colorScheme.onSurface)
+                            Text(strings.copyMessageText, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
@@ -551,7 +551,7 @@ fun ChatScreen(
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                             Spacer(modifier = Modifier.width(12.dp))
-                            Text("حذف این پیام", color = MaterialTheme.colorScheme.error)
+                            Text(strings.deleteThisMessage, color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -559,7 +559,7 @@ fun ChatScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { messageForAction = null }) {
-                    Text("انصراف")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -570,17 +570,17 @@ fun ChatScreen(
         var selectedDelayMinutes by remember { mutableIntStateOf(15) }
         AlertDialog(
             onDismissRequest = { showScheduleDialog = false },
-            title = { Text("ارسال زمان‌بندی‌شده", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+            title = { Text(strings.scheduleTitle, fontWeight = FontWeight.Bold, fontSize = 17.sp) },
             text = {
                 Column {
-                    Text("زمان ارسال پیامک را انتخاب کنید:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (strings.isFa) "زمان ارسال پیامک را انتخاب کنید:" else "Select delivery time:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.height(12.dp))
                     listOf(
-                        15 to "۱۵ دقیقه بعد",
-                        60 to "۱ ساعت بعد",
-                        180 to "۳ ساعت بعد",
-                        720 to "۱۲ ساعت بعد",
-                        1440 to "فردا همین ساعت"
+                        15 to (if (strings.isFa) "۱۵ دقیقه بعد" else "15 minutes later"),
+                        60 to (if (strings.isFa) "۱ ساعت بعد" else "1 hour later"),
+                        180 to (if (strings.isFa) "۳ ساعت بعد" else "3 hours later"),
+                        720 to (if (strings.isFa) "۱۲ ساعت بعد" else "12 hours later"),
+                        1440 to (if (strings.isFa) "فردا همین ساعت" else "Tomorrow same time")
                     ).forEach { (min, label) ->
                         Row(
                             modifier = Modifier

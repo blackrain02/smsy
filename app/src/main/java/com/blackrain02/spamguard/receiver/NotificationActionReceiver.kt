@@ -10,6 +10,8 @@ import android.widget.Toast
 import androidx.core.app.RemoteInput
 import com.blackrain02.spamguard.data.repository.SmsRepository
 import com.blackrain02.spamguard.notification.NotificationHelper
+import com.blackrain02.spamguard.ui.theme.AppLanguage
+import com.blackrain02.spamguard.ui.theme.ThemePreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -60,7 +62,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 if (otpCode.isNotBlank()) {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("OTP Code", otpCode))
-                    Toast.makeText(context, "کد تایید $otpCode کپی شد", Toast.LENGTH_SHORT).show()
+                    ThemePreferences.init(context)
+                    val isFa = ThemePreferences.currentLanguage.value == AppLanguage.FA
+                    val msg = if (isFa) "کد تایید $otpCode کپی شد" else "Verification code $otpCode copied"
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     if (notificationId != -1) {
                         notificationManager.cancel(notificationId)
                     }

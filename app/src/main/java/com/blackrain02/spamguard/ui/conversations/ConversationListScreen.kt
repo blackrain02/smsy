@@ -137,9 +137,9 @@ fun ConversationListScreen(
             scope.launch {
                 val res = backupRepo.exportToFile(uri)
                 if (res.isSuccess) {
-                    Toast.makeText(context, "فایل پشتیبان با موفقیت صادر شد", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (strings.isFa) "فایل پشتیبان با موفقیت صادر شد" else "Backup exported successfully", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(context, "خطا در صادرات فایل پشتیبان", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (strings.isFa) "خطا در صادرات فایل پشتیبان" else "Error exporting backup", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -152,10 +152,10 @@ fun ConversationListScreen(
             scope.launch {
                 val res = backupRepo.importFromFile(uri)
                 if (res.isSuccess) {
-                    Toast.makeText(context, "پشتیبان با موفقیت بازگردانی شد: ${res.getOrNull()}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, (if (strings.isFa) "پشتیبان با موفقیت بازگردانی شد: " else "Backup restored successfully: ") + (res.getOrNull() ?: ""), Toast.LENGTH_LONG).show()
                     isSolarCalendar = DateUtils.isSolarCalendar(context)
                 } else {
-                    Toast.makeText(context, "خطا در خواندن فایل پشتیبان: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, (if (strings.isFa) "خطا در خواندن فایل پشتیبان: " else "Error reading backup: ") + (res.exceptionOrNull()?.message ?: ""), Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -716,7 +716,7 @@ fun ConversationListScreen(
     if (showCalendarDialog) {
         AlertDialog(
             onDismissRequest = { showCalendarDialog = false },
-            title = { Text("Calendar Format / نوع تقویم", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+            title = { Text(strings.calendarFormat, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
             text = {
                 Column {
                     Row(
@@ -740,7 +740,7 @@ fun ConversationListScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
-                            Text("Solar Hijri (شمسی)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(strings.calendarSolar, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                             Text("e.g. 1403/07/20", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -766,7 +766,7 @@ fun ConversationListScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
-                            Text("Gregorian (میلادی)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(strings.calendarGregorian, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                             Text("e.g. 2026/10/12", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -774,7 +774,7 @@ fun ConversationListScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showCalendarDialog = false }) {
-                    Text("Close")
+                    Text(strings.close)
                 }
             }
         )
@@ -873,13 +873,14 @@ fun ConversationListScreen(
                                     for (num in target.mergedAddresses) {
                                         smsRepository.blocklistRepository.unblockSender(num)
                                     }
-                                    Toast.makeText(context, "سرشماره از فهرست سیاه خارج شد", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, if (strings.isFa) "سرشماره از فهرست سیاه خارج شد" else "Sender removed from blocklist", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    smsRepository.blocklistRepository.blockSender(target.address, "مسدودسازی دستی")
+                                    val reason = if (strings.isFa) "مسدودسازی دستی" else "Manual block"
+                                    smsRepository.blocklistRepository.blockSender(target.address, reason)
                                     for (num in target.mergedAddresses) {
-                                        smsRepository.blocklistRepository.blockSender(num, "مسدودسازی دستی")
+                                        smsRepository.blocklistRepository.blockSender(num, reason)
                                     }
-                                    Toast.makeText(context, "سرشماره به فهرست سیاه اضافه شد", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, if (strings.isFa) "سرشماره به فهرست سیاه اضافه شد" else "Sender added to blocklist", Toast.LENGTH_SHORT).show()
                                 }
                                 selectedConversationForAction = null
                                 refreshList()
@@ -1001,7 +1002,7 @@ fun ConversationListScreen(
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
-                        "انتخاب چندتایی (عملیات گروهی)",
+                        strings.batchSelectMode,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
@@ -1027,7 +1028,7 @@ fun ConversationListScreen(
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
-                        "حذف گفتگو",
+                        strings.deleteConversation,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.error
@@ -1347,10 +1348,15 @@ fun ConversationListScreen(
     if (showTemplatesDialog) {
         val templatesList by templateRepo.getAllTemplates().collectAsState(initial = emptyList())
         var newTemplateInput by remember { mutableStateOf("") }
+        var editingTemplateId by remember { mutableStateOf<Long?>(null) }
         var isExtracting by remember { mutableStateOf(false) }
 
         ModalBottomSheet(
-            onDismissRequest = { showTemplatesDialog = false },
+            onDismissRequest = {
+                showTemplatesDialog = false
+                editingTemplateId = null
+                newTemplateInput = ""
+            },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             containerColor = MaterialTheme.colorScheme.surface
@@ -1367,7 +1373,11 @@ fun ConversationListScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(strings.manageTemplates, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    IconButton(onClick = { showTemplatesDialog = false }) {
+                    IconButton(onClick = {
+                        showTemplatesDialog = false
+                        editingTemplateId = null
+                        newTemplateInput = ""
+                    }) {
                         Icon(Icons.Default.Close, contentDescription = strings.close)
                     }
                 }
@@ -1409,22 +1419,44 @@ fun ConversationListScreen(
                     OutlinedTextField(
                         value = newTemplateInput,
                         onValueChange = { newTemplateInput = it },
-                        placeholder = { Text(if (strings.isFa) "متن پاسخ آماده جدید..." else "New template text...", fontSize = 12.sp) },
+                        placeholder = {
+                            Text(
+                                if (editingTemplateId != null) strings.editTemplate
+                                else (if (strings.isFa) "متن پاسخ آماده جدید..." else "New template text..."),
+                                fontSize = 12.sp
+                            )
+                        },
                         modifier = Modifier.weight(1f),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
-                            if (newTemplateInput.isNotBlank()) {
+                            val clean = newTemplateInput.trim()
+                            if (clean.isNotBlank()) {
                                 scope.launch {
-                                    templateRepo.addTemplate(newTemplateInput)
+                                    val editId = editingTemplateId
+                                    if (editId != null) {
+                                        templateRepo.updateTemplate(editId, clean)
+                                        editingTemplateId = null
+                                    } else {
+                                        templateRepo.addTemplate(clean)
+                                    }
                                     newTemplateInput = ""
                                 }
                             }
                         }
                     ) {
-                        Text(strings.add)
+                        Text(if (editingTemplateId != null) strings.save else strings.add)
+                    }
+                    if (editingTemplateId != null) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        IconButton(onClick = {
+                            editingTemplateId = null
+                            newTemplateInput = ""
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = strings.cancel, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
 
@@ -1439,29 +1471,57 @@ fun ConversationListScreen(
                 } else {
                     LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
                         items(templatesList, key = { it.id }) { item ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                            val isEditingThis = editingTemplateId == item.id
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isEditingThis) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Transparent,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(item.text, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    if (item.usageCount > 0) {
-                                        Text(
-                                            if (strings.isFa) "${item.usageCount} بار استفاده شده" else "Used ${item.usageCount} times",
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-                                IconButton(
-                                    onClick = {
-                                        scope.launch { templateRepo.deleteTemplate(item.id) }
-                                    }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Icon(Icons.Default.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(item.text, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        if (item.usageCount > 0) {
+                                            Text(
+                                                if (strings.isFa) "${item.usageCount} بار استفاده شده" else "Used ${item.usageCount} times",
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = {
+                                                editingTemplateId = item.id
+                                                newTemplateInput = item.text
+                                            }
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Edit,
+                                                contentDescription = strings.edit,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    if (editingTemplateId == item.id) {
+                                                        editingTemplateId = null
+                                                        newTemplateInput = ""
+                                                    }
+                                                    templateRepo.deleteTemplate(item.id)
+                                                }
+                                            }
+                                        ) {
+                                            Icon(Icons.Default.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                        }
+                                    }
                                 }
                             }
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f))

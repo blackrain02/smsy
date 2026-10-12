@@ -76,6 +76,12 @@ class AppStrings(val lang: AppLanguage) {
     val restore = if (isFa) "بازگردانی" else "Restore"
     val add = if (isFa) "افزودن" else "Add"
     val save = if (isFa) "ذخیره" else "Save"
+    val edit = if (isFa) "ویرایش" else "Edit"
+    val editTemplate = if (isFa) "ویرایش پاسخ آماده" else "Edit Quick Response"
+    val batchSelectMode = if (isFa) "انتخاب چندتایی (عملیات گروهی)" else "Batch Select"
+    val copyMessageText = if (isFa) "کپی متن پیام" else "Copy Message Text"
+    val deleteThisMessage = if (isFa) "حذف این پیام" else "Delete This Message"
+    val messageOptions = if (isFa) "گزینه‌های پیام" else "Message Options"
 
     // Quarantine
     val quarantineTitle = if (isFa) "قرنطینه هرزنامه‌ها" else "Spam Quarantine"

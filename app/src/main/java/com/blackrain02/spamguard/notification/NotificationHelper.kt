@@ -10,6 +10,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
 import com.blackrain02.spamguard.receiver.NotificationActionReceiver
 import com.blackrain02.spamguard.ui.MainActivity
+import com.blackrain02.spamguard.ui.theme.AppLanguage
+import com.blackrain02.spamguard.ui.theme.ThemePreferences
 import com.blackrain02.spamguard.ui.util.OtpHelper
 
 object NotificationHelper {
@@ -68,6 +70,9 @@ object NotificationHelper {
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
+        ThemePreferences.init(context)
+        val isFa = ThemePreferences.currentLanguage.value == AppLanguage.FA
+
         // ۱. اکشن هوشمند کپی رمز یک‌بارمصرف (در صورت تشخیص OTP)
         val otpCode = OtpHelper.extractOtp(body)
         if (otpCode != null) {
@@ -84,14 +89,14 @@ object NotificationHelper {
             )
             builder.addAction(
                 android.R.drawable.ic_menu_save,
-                "کپی کد $otpCode",
+                if (isFa) "کپی کد $otpCode" else "Copy Code $otpCode",
                 copyOtpPending
             )
         }
 
         // ۲. اکشن پاسخ مستقیم (Inline Reply)
         val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
-            .setLabel("پاسخ...")
+            .setLabel(if (isFa) "پاسخ..." else "Reply...")
             .build()
         val replyIntent = Intent(context, NotificationActionReceiver::class.java).apply {
             action = ACTION_REPLY
@@ -107,7 +112,7 @@ object NotificationHelper {
         )
         val replyAction = NotificationCompat.Action.Builder(
             android.R.drawable.ic_menu_send,
-            "پاسخ",
+            if (isFa) "پاسخ" else "Reply",
             replyPendingIntent
         ).addRemoteInput(remoteInput).build()
         builder.addAction(replyAction)
@@ -127,7 +132,7 @@ object NotificationHelper {
         )
         builder.addAction(
             android.R.drawable.checkbox_on_background,
-            "خوانده شد",
+            if (isFa) "خوانده شد" else "Mark as read",
             markReadPendingIntent
         )
 

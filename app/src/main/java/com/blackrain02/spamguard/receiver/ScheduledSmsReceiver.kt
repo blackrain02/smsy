@@ -43,10 +43,14 @@ class ScheduledSmsReceiver : BroadcastReceiver() {
 
     private fun showSentNotification(context: Context, address: String, body: String) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        com.blackrain02.spamguard.ui.theme.ThemePreferences.init(context)
+        val isFa = com.blackrain02.spamguard.ui.theme.ThemePreferences.currentLanguage.value == com.blackrain02.spamguard.ui.theme.AppLanguage.FA
+        val title = if (isFa) "پیام زمان‌بندی‌شده ارسال شد" else "Scheduled SMS Sent"
+        val content = (if (isFa) "به: " else "To: ") + "$address\n$body"
         val notif = NotificationCompat.Builder(context, "channel_clean_messages")
             .setSmallIcon(android.R.drawable.ic_dialog_email)
-            .setContentTitle("پیام زمان‌بندی‌شده ارسال شد")
-            .setContentText("به: $address\n$body")
+            .setContentTitle(title)
+            .setContentText(content)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()

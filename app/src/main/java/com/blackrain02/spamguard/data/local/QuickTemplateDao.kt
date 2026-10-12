@@ -20,6 +20,9 @@ interface QuickTemplateDao {
     @Query("UPDATE quick_templates SET usageCount = usageCount + 1 WHERE id = :id")
     suspend fun incrementUsage(id: Long)
 
+    @Query("UPDATE quick_templates SET text = :newText WHERE id = :id")
+    suspend fun updateText(id: Long, newText: String)
+
     @Query("DELETE FROM quick_templates WHERE id = :id")
     suspend fun delete(id: Long)
 

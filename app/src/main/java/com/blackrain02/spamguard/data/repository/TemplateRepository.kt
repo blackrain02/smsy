@@ -40,6 +40,10 @@ class TemplateRepository(private val context: Context) {
         dao.incrementUsage(id)
     }
 
+    suspend fun updateTemplate(id: Long, text: String) {
+        dao.updateText(id, text.trim())
+    }
+
     suspend fun deleteTemplate(id: Long) {
         dao.delete(id)
     }
