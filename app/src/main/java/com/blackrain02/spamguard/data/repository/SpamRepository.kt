@@ -1,6 +1,7 @@
 package com.blackrain02.spamguard.data.repository
 
 import android.content.Context
+import com.blackrain02.spamguard.ai.AdaptiveFeedbackEngine
 import com.blackrain02.spamguard.data.local.AppDatabase
 import com.blackrain02.spamguard.data.local.SpamMessageEntity
 import com.blackrain02.spamguard.data.local.UserWhitelistEntity
@@ -13,6 +14,7 @@ class SpamRepository(context: Context) {
     private val spamDao = db.spamMessageDao()
     private val userWhitelistDao = db.userWhitelistDao()
     private val smsRepository = SmsRepository(context)
+    private val feedbackEngine = AdaptiveFeedbackEngine.getInstance(context)
 
     fun getAllSpam(): Flow<List<SpamMessageEntity>> = spamDao.getAllSpam()
 
@@ -25,6 +27,7 @@ class SpamRepository(context: Context) {
             timestamp = System.currentTimeMillis(),
             spamProbability = probability
         )
+        feedbackEngine.recordSpamFeedback(body)
         spamDao.insert(entity)
     }
 
@@ -35,6 +38,7 @@ class SpamRepository(context: Context) {
             timestamp = timestamp,
             spamProbability = probability
         )
+        feedbackEngine.recordSpamFeedback(body)
         spamDao.insert(entity)
     }
 
@@ -57,10 +61,11 @@ class SpamRepository(context: Context) {
         smsRepository.saveToInbox(spam.sender, spam.body, spam.timestamp, isRead = true)
         spamDao.deleteById(spam.id)
         
-        // ثبت در حافظه یادگیری دائمی سیستم
+        // ثبت در حافظه یادگیری دائمی سیستم و یادگیری کلمات سالم
         if (spam.sender.isNotBlank()) {
             userWhitelistDao.insert(UserWhitelistEntity(sender = spam.sender))
         }
+        feedbackEngine.recordHamFeedback(spam.body)
     }
 
     /**
@@ -70,6 +75,7 @@ class SpamRepository(context: Context) {
         val messages = spamDao.getMessagesBySender(sender)
         for (msg in messages) {
             smsRepository.saveToInbox(msg.sender, msg.body, msg.timestamp, isRead = true)
+            feedbackEngine.recordHamFeedback(msg.body)
         }
         spamDao.deleteBySender(sender)
 

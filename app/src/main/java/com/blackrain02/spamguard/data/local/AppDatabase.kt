@@ -11,9 +11,11 @@ import androidx.room.RoomDatabase
         UserWhitelistEntity::class,
         BlocklistEntity::class,
         ScheduledMessageEntity::class,
-        QuickTemplateEntity::class
+        QuickTemplateEntity::class,
+        SpamFeedbackEntity::class,
+        BankTransactionEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -22,6 +24,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun blocklistDao(): BlocklistDao
     abstract fun scheduledMessageDao(): ScheduledMessageDao
     abstract fun quickTemplateDao(): QuickTemplateDao
+    abstract fun spamFeedbackDao(): SpamFeedbackDao
+    abstract fun bankTransactionDao(): BankTransactionDao
 
     companion object {
         @Volatile

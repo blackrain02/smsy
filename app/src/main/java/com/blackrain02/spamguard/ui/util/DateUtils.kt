@@ -73,6 +73,56 @@ object DateUtils {
         }
     }
 
+    fun jalaliToGregorian(jy: Int, jm: Int, jd: Int): Triple<Int, Int, Int> {
+        return try {
+            val safeJm = jm.coerceIn(1, 12)
+            val safeJd = jd.coerceIn(1, 31)
+            val jY = jy - 979
+            val jM = safeJm - 1
+            val jD = safeJd - 1
+
+            val jDayNo = 365 * jY + (jY / 33) * 8 + ((jY % 33 + 3) / 4) + (if (jM < 6) jM * 31 else (jM - 6) * 30 + 186) + jD
+            var gDayNo = jDayNo + 79
+
+            var gY = 1600 + 400 * (gDayNo / 146097)
+            gDayNo %= 146097
+
+            var leap = true
+            if (gDayNo >= 36525) {
+                gDayNo--
+                gY += 100 * (gDayNo / 36524)
+                gDayNo %= 36524
+
+                if (gDayNo >= 365) {
+                    gDayNo++
+                } else {
+                    leap = false
+                }
+            }
+
+            gY += 4 * (gDayNo / 1461)
+            gDayNo %= 1461
+
+            if (gDayNo >= 366) {
+                leap = false
+                gDayNo--
+                gY += gDayNo / 365
+                gDayNo %= 365
+            }
+
+            val gDaysInMonth = intArrayOf(0, 31, if (leap) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+            var gM = 1
+            while (gM <= 12 && gDayNo >= gDaysInMonth[gM]) {
+                gDayNo -= gDaysInMonth[gM]
+                gM++
+            }
+            val gD = gDayNo + 1
+            Triple(gY, gM, gD)
+        } catch (e: Throwable) {
+            Triple(jy, jm, jd)
+        }
+    }
+
     @Synchronized
     fun formatConversationDate(timestamp: Long, isSolar: Boolean): String {
         if (timestamp <= 0L) return ""

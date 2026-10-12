@@ -44,6 +44,8 @@ class SmsDeliverReceiver : BroadcastReceiver() {
                 if (smsRepo.isContact(sender) || spamRepo.isUserWhitelisted(sender)) {
                     val uri = smsRepo.saveToInbox(sender, fullBody, timestamp)
                     val threadId = smsRepo.getOrCreateThreadId(sender)
+                    val bankRepo = com.blackrain02.spamguard.data.repository.BankTransactionRepository(context)
+                    bankRepo.recordIfBankMessage(sender, fullBody, timestamp)
                     NotificationHelper.showMessageNotification(context, sender, fullBody, threadId)
                     return@launch
                 }
@@ -59,6 +61,8 @@ class SmsDeliverReceiver : BroadcastReceiver() {
                     // پیامک عادی/بانکی: ذخیره در پیامک‌های رسمی گوشی و ارسال اعلان
                     val uri = smsRepo.saveToInbox(sender, fullBody, timestamp)
                     val threadId = smsRepo.getOrCreateThreadId(sender)
+                    val bankRepo = com.blackrain02.spamguard.data.repository.BankTransactionRepository(context)
+                    bankRepo.recordIfBankMessage(sender, fullBody, timestamp)
                     NotificationHelper.showMessageNotification(context, sender, fullBody, threadId)
                 }
             } finally {

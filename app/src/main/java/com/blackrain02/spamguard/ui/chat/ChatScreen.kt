@@ -5,9 +5,12 @@ import android.database.ContentObserver
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.Telephony
 import android.widget.Toast
+import com.blackrain02.spamguard.ai.SmartEventExtractor
+import com.blackrain02.spamguard.ai.SmartReplyGenerator
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -252,6 +255,13 @@ fun ChatScreen(
             )
         },
         bottomBar = {
+            val lastIncomingMessage = remember(messages) { messages.lastOrNull { !it.isSent } }
+            val smartReplies = remember(lastIncomingMessage?.body, strings.isFa) {
+                if (lastIncomingMessage != null) {
+                    SmartReplyGenerator.generateReplies(lastIncomingMessage.body, strings.isFa)
+                } else emptyList()
+            }
+
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -260,12 +270,51 @@ fun ChatScreen(
                 tonalElevation = 2.dp,
                 color = MaterialTheme.colorScheme.surface
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column {
+                    if (smartReplies.isNotEmpty() && inputText.isBlank()) {
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 5.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(smartReplies) { reply ->
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                                    modifier = Modifier.clickable {
+                                        inputText = reply
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text(
+                                            text = reply,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                     Surface(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(20.dp),
@@ -366,6 +415,7 @@ fun ChatScreen(
                 }
             }
         }
+    }
     ) { padding ->
         val uniqueMessages = remember(messages) {
             val seen = HashSet<String>()
@@ -476,6 +526,69 @@ fun ChatScreen(
                                             ) {
                                                 Text(if (strings.isFa) "حذف پیام" else "Delete", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
                                             }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // کارت هوشمند استخراج رویداد / سررسید چک / قبوض / نوبت
+                            val smartEvent = remember(msg.body) { SmartEventExtractor.extractEvent(msg.body) }
+                            if (smartEvent != null && otpCode == null) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (msg.isSent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                    tonalElevation = 2.dp,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            Icon(
+                                                Icons.Default.Event,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Column {
+                                                Text(
+                                                    text = smartEvent.title,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.5.sp,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                smartEvent.dateFormatted?.let { df ->
+                                                    Text(
+                                                        text = df,
+                                                        fontSize = 10.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        TextButton(
+                                            onClick = {
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_INSERT).apply {
+                                                        data = CalendarContract.Events.CONTENT_URI
+                                                        putExtra(CalendarContract.Events.TITLE, smartEvent.title)
+                                                        putExtra(CalendarContract.Events.DESCRIPTION, smartEvent.description)
+                                                        smartEvent.dateEpochMillis?.let {
+                                                            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, it)
+                                                        }
+                                                    }
+                                                    context.startActivity(intent)
+                                                } catch (e: Throwable) {
+                                                    Toast.makeText(context, if (strings.isFa) "برنامه تقویم یافت نشد" else "No calendar app found", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(strings.addToCalendar, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }

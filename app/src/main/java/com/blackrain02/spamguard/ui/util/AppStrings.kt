@@ -87,6 +87,21 @@ class AppStrings(val lang: AppLanguage) {
     val quarantineTitle = if (isFa) "قرنطینه هرزنامه‌ها" else "Spam Quarantine"
     val clearAll = if (isFa) "پاکسازی همه" else "Clear All"
     val restoreToInbox = if (isFa) "بازگردانی به صندوق دریافت" else "Restore to Inbox"
+
+    // Smart Features (Finance, Events, Smart Reply)
+    val financialDashboard = if (isFa) "مدیریت مالی و تراکنش‌های بانکی" else "Financial & Expense Dashboard"
+    val totalDeposits = if (isFa) "مجموع واریزی‌ها" else "Total Deposits"
+    val totalWithdrawals = if (isFa) "مجموع برداشت‌ها" else "Total Withdrawals"
+    val netBalance = if (isFa) "تراز مالی" else "Net Balance"
+    val allTransactions = if (isFa) "همه" else "All"
+    val deposits = if (isFa) "واریز" else "Deposits"
+    val withdrawals = if (isFa) "برداشت" else "Withdrawals"
+    val noTransactions = if (isFa) "هیچ تراکنش بانکی ثبت نشده است." else "No bank transactions recorded."
+    val financialScan = if (isFa) "اسکن پیامک‌های بانکی گذشته" else "Scan Historical Bank SMS"
+    val transactionsCount = if (isFa) "تراکنش" else "Transactions"
+    val eventDetected = if (isFa) "رویداد / سررسید" else "Event / Due Date"
+    val addToCalendar = if (isFa) "افزودن به تقویم" else "Add to Calendar"
+    val smartReplies = if (isFa) "پاسخ‌های پیشنهادی هوشمند" else "Smart Replies"
 }
 
 val LocalAppStrings = staticCompositionLocalOf { AppStrings(AppLanguage.EN) }

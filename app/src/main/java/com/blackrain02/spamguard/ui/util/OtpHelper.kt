@@ -21,6 +21,8 @@ object OtpHelper {
         return result
     }
 
+    fun toLatinDigits(input: String): String = convertDigitsToEnglish(input)
+
     /**
      * آیا این پیامک حاوی کد تایید / رمز یک‌بارمصرف است؟
      */

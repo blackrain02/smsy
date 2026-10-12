@@ -53,6 +53,8 @@ import com.blackrain02.spamguard.data.local.BlocklistEntity
 import com.blackrain02.spamguard.data.local.QuickTemplateEntity
 import com.blackrain02.spamguard.data.model.Conversation
 import com.blackrain02.spamguard.data.repository.BackupRepository
+import com.blackrain02.spamguard.data.repository.BankTransactionRepository
+import com.blackrain02.spamguard.data.repository.FinancialStats
 import com.blackrain02.spamguard.data.repository.ScanProgress
 import com.blackrain02.spamguard.data.repository.SmsRepository
 import com.blackrain02.spamguard.data.repository.SpamRepository
@@ -129,6 +131,11 @@ fun ConversationListScreen(
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showBlocklistDialog by remember { mutableStateOf(false) }
     var showTemplatesDialog by remember { mutableStateOf(false) }
+    var showFinancialSheet by remember { mutableStateOf(false) }
+    val bankRepo = remember { BankTransactionRepository(context) }
+    val financialStats by bankRepo.getFinancialStats().collectAsState(initial = FinancialStats())
+    val allTransactions by bankRepo.getAllTransactions().collectAsState(initial = emptyList())
+    var isScanningBankSms by remember { mutableStateOf(false) }
 
     val createBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -1204,6 +1211,19 @@ fun ConversationListScreen(
                     Text(strings.manageTemplates, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
                 }
 
+                // ۷. مدیریت مالی و حسابداری هوشمند تراکنش‌های بانکی
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showFinancialSheet = true; showSettingsSheet = false }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(strings.financialDashboard, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
+                }
+
                 Spacer(modifier = Modifier.height(14.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                 Spacer(modifier = Modifier.height(14.dp))
@@ -1521,6 +1541,257 @@ fun ConversationListScreen(
                                         ) {
                                             Icon(Icons.Default.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                                         }
+                                    }
+                                }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // شیت مدیریت مالی و حسابداری پیامک‌های بانکی
+    if (showFinancialSheet) {
+        var selectedFilter by remember { mutableStateOf("ALL") }
+        val filteredTransactions = remember(allTransactions, selectedFilter) {
+            when (selectedFilter) {
+                "DEPOSIT" -> allTransactions.filter { it.type == "DEPOSIT" }
+                "WITHDRAWAL" -> allTransactions.filter { it.type == "WITHDRAWAL" }
+                else -> allTransactions
+            }
+        }
+
+        ModalBottomSheet(
+            onDismissRequest = { showFinancialSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .padding(bottom = 28.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.AccountBalanceWallet,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            strings.financialDashboard,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    IconButton(onClick = { showFinancialSheet = false }) {
+                        Icon(Icons.Default.Close, contentDescription = strings.close)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // کارت خلاصه آمار و تراز مالی
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // واریزی‌ها
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF10B981).copy(alpha = 0.12f)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(strings.totalDeposits, fontSize = 11.sp, color = Color(0xFF059669))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = String.format(java.util.Locale.ENGLISH, "%,d", financialStats.totalDeposits) + " ت",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF047857)
+                            )
+                        }
+                    }
+
+                    // برداشت‌ها
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFEF4444).copy(alpha = 0.12f)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(strings.totalWithdrawals, fontSize = 11.sp, color = Color(0xFFDC2626))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = String.format(java.util.Locale.ENGLISH, "%,d", financialStats.totalWithdrawals) + " ت",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFB91C1C)
+                            )
+                        }
+                    }
+
+                    // تراز کل
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(strings.netBalance, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = String.format(java.util.Locale.ENGLISH, "%,d", financialStats.netBalance) + " ت",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // دکمه اسکن و همگام‌سازی پیامک‌های بانکی صندوق
+                OutlinedButton(
+                    onClick = {
+                        if (!isScanningBankSms) {
+                            isScanningBankSms = true
+                            scope.launch {
+                                val count = bankRepo.scanAndImportHistoricalBankSms()
+                                isScanningBankSms = false
+                                val msg = if (strings.isFa) "$count تراکنش بانکی شناسایی و ثبت شد" else "$count bank transactions extracted"
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        if (isScanningBankSms) {
+                            if (strings.isFa) "در حال اسکن پیامک‌ها..." else "Scanning SMS..."
+                        } else strings.financialScan,
+                        fontSize = 12.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // فیلترهای تراکنش (همه، واریز، برداشت)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedFilter == "ALL",
+                        onClick = { selectedFilter = "ALL" },
+                        label = { Text(strings.allTransactions + " (${allTransactions.size})", fontSize = 11.5.sp) }
+                    )
+                    FilterChip(
+                        selected = selectedFilter == "DEPOSIT",
+                        onClick = { selectedFilter = "DEPOSIT" },
+                        label = { Text(strings.deposits, fontSize = 11.5.sp) }
+                    )
+                    FilterChip(
+                        selected = selectedFilter == "WITHDRAWAL",
+                        onClick = { selectedFilter = "WITHDRAWAL" },
+                        label = { Text(strings.withdrawals, fontSize = 11.5.sp) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (filteredTransactions.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            strings.noTransactions,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                        items(filteredTransactions, key = { it.id }) { item ->
+                            val isDeposit = item.type == "DEPOSIT"
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (isDeposit) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFFEF4444).copy(alpha = 0.15f),
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = if (isDeposit) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
+                                                contentDescription = null,
+                                                tint = if (isDeposit) Color(0xFF059669) else Color(0xFFDC2626),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = item.bankName + if (!item.cardNumber.isNullOrBlank()) " (${item.cardNumber})" else "",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = item.category,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "• " + DateUtils.formatConversationDate(item.timestamp, isSolarCalendar),
+                                                fontSize = 10.5.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    val sign = if (isDeposit) "+" else "-"
+                                    val amountFormatted = String.format(java.util.Locale.ENGLISH, "%,d", item.amount)
+                                    Text(
+                                        text = "$sign$amountFormatted ${item.amountUnit}",
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isDeposit) Color(0xFF059669) else Color(0xFFDC2626)
+                                    )
+                                    if (item.balance != null) {
+                                        Text(
+                                            text = (if (strings.isFa) "مانده: " else "Bal: ") + String.format(java.util.Locale.ENGLISH, "%,d", item.balance) + " ت",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
                             }

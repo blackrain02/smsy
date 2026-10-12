@@ -17,6 +17,7 @@ class SpamClassifier private constructor(context: Context) {
     private val session: OrtSession
     private val vectorizer = Vectorizer(context)
     private val whitelistFilter = WhitelistFilter(context)
+    private val feedbackEngine = AdaptiveFeedbackEngine.getInstance(context)
 
     init {
         val modelBytes = context.assets.open("spam_classifier.onnx").readBytes()
@@ -38,6 +39,7 @@ class SpamClassifier private constructor(context: Context) {
         val hasOptOut = hasOptOutTrigger(body)
         val hasPromo = hasPromoTrigger(body)
         val hasLink = hasLinkTrigger(body)
+        val feedbackBias = feedbackEngine.getFeedbackBias(body)
 
         // ۲. نرمال‌سازی و تبدیل متن به بردار ویژگی‌های TF-IDF
         val normalized = TextNormalizer.normalize(body)
@@ -68,7 +70,16 @@ class SpamClassifier private constructor(context: Context) {
                 spamProb = maxOf(spamProb, 0.75f)
             }
 
-            val isSpam = spamProb >= 0.45f || hasOptOut || (isCommercial && (hasPromo || hasLink))
+            // اعمال ضریب یادگیری محلی فیدبک کاربر
+            spamProb = (spamProb + feedbackBias).coerceIn(0.0f, 1.0f)
+
+            val isSpam = if (feedbackBias <= -0.40f) {
+                false // اعتماد قطعی محلی به دلیل سابقه خروج از قرنطینه توسط کاربر
+            } else if (feedbackBias >= 0.40f) {
+                true // اسپم قطعی محلی بر اساس تصحیح‌های دستی مکرر کاربر
+            } else {
+                spamProb >= 0.45f || hasOptOut || (isCommercial && (hasPromo || hasLink))
+            }
             ClassificationResult(isSpam = isSpam, spamProbability = spamProb, isWhitelisted = false)
         } catch (e: Exception) {
             e.printStackTrace()
