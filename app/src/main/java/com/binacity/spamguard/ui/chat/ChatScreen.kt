@@ -42,6 +42,7 @@ import com.binacity.spamguard.data.repository.ScheduledMessageRepository
 import com.binacity.spamguard.data.repository.SmsRepository
 import com.binacity.spamguard.data.repository.TemplateRepository
 import com.binacity.spamguard.ui.util.DateUtils
+import com.binacity.spamguard.ui.util.LocalAppStrings
 import com.binacity.spamguard.ui.util.OtpHelper
 import com.binacity.spamguard.ui.util.SimHelper
 import kotlinx.coroutines.Job
@@ -102,6 +103,8 @@ fun ChatScreen(
 
     val scheduledRepo = remember { ScheduledMessageRepository(context) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    var showSendOptionsSheet by remember { mutableStateOf(false) }
+    val strings = LocalAppStrings.current
 
     // بارگذاری اولیه پیام‌ها و علامت‌گذاری به عنوان خوانده‌شده
     LaunchedEffect(threadId, address, mergedAddresses) {
@@ -257,144 +260,67 @@ fun ChatScreen(
                 tonalElevation = 2.dp,
                 color = MaterialTheme.colorScheme.surface
             ) {
-                Column {
-                    // ردیف چیپ‌های پاسخ‌های آماده سریع
-                    if (templates.isNotEmpty()) {
-                        LazyRow(
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            items(templates.take(8), key = { it.id }) { tmpl ->
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                    modifier = Modifier.clickable {
-                                        inputText = if (inputText.isBlank()) tmpl.text else "$inputText ${tmpl.text}"
-                                        scope.launch { templateRepo.useTemplate(tmpl.id) }
+                            BasicTextField(
+                                value = inputText,
+                                onValueChange = { inputText = it },
+                                modifier = Modifier.weight(1f),
+                                maxLines = 4,
+                                textStyle = LocalTextStyle.current.copy(
+                                    textDirection = TextDirection.Content,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                ),
+                                decorationBox = { innerTextField ->
+                                    if (inputText.isEmpty()) {
+                                        Text(
+                                            strings.textMessage,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
-                                ) {
-                                    Text(
-                                        text = tmpl.text,
-                                        fontSize = 11.5.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    innerTextField()
                                 }
+                            )
+
+                            val counter = remember(inputText) { calculateSmsCounter(inputText) }
+                            if (inputText.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "${counter.remaining}/${counter.maxSingle}" + if (counter.parts > 1) " (${counter.parts})" else "",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                )
                             }
                         }
                     }
 
-                    Row(
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // تک‌دکمه ارسال هوشمند: تاچ معمولی برای ارسال فوری، تاچ و نگه‌داشتن برای تنظیمات سیم‌کارت/زمان‌بندی/پاسخ آماده
+                    Surface(
+                        shape = CircleShape,
+                        color = if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                BasicTextField(
-                                    value = inputText,
-                                    onValueChange = { inputText = it },
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 4,
-                                    textStyle = LocalTextStyle.current.copy(
-                                        textDirection = TextDirection.Content,
-                                        fontSize = 14.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    ),
-                                    decorationBox = { innerTextField ->
-                                        if (inputText.isEmpty()) {
-                                            Text(
-                                                "Text message",
-                                                fontSize = 14.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        innerTextField()
-                                    }
-                                )
-
-                                val counter = remember(inputText) { calculateSmsCounter(inputText) }
-                                if (inputText.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "${counter.remaining}/${counter.maxSingle}" + if (counter.parts > 1) " (${counter.parts})" else "",
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                                    )
-                                }
-                            }
-                        }
-
-                        // دکمه انتخاب سیم‌کارت در گوشی‌های ۲ سیم‌کارت
-                        if (activeSims.size > 1) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                modifier = Modifier.clickable {
-                                    selectedSimIndex = (selectedSimIndex + 1) % activeSims.size
-                                }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.SimCard, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text(
-                                        "SIM ${(currentSim?.slotIndex ?: 0) + 1}",
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
-                                }
-                            }
-                        }
-
-                        // دکمه زمان‌بندی ارسال پیامک
-                        Spacer(modifier = Modifier.width(4.dp))
-                        IconButton(
-                            onClick = {
-                                if (inputText.isNotBlank()) {
-                                    showScheduleDialog = true
-                                } else {
-                                    Toast.makeText(context, "ابتدا متن پیام را وارد کنید", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Schedule,
-                                contentDescription = "Schedule SMS",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .background(
-                                    if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                    CircleShape
-                                )
-                                .clickable(enabled = inputText.isNotBlank()) {
+                            .size(42.dp)
+                            .combinedClickable(
+                                onClick = {
                                     if (inputText.isNotBlank()) {
                                         val textToSend = inputText
                                         inputText = ""
@@ -406,14 +332,35 @@ fun ChatScreen(
                                         }
                                     }
                                 },
-                            contentAlignment = Alignment.Center
-                        ) {
+                                onLongClick = {
+                                    showSendOptionsSheet = true
+                                }
+                            )
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send",
+                                contentDescription = strings.send,
                                 tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(19.dp)
                             )
+                            if (activeSims.size > 1 && currentSim != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(2.dp)
+                                        .size(13.dp)
+                                        .background(MaterialTheme.colorScheme.secondary, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "${currentSim.slotIndex + 1}",
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSecondary
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -434,6 +381,7 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 12.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(uniqueMessages, key = { if (it.id > 0) it.id else "${it.date}_${it.body.hashCode()}" }) { msg ->
@@ -660,18 +608,172 @@ fun ChatScreen(
                         showScheduleDialog = false
                         scope.launch {
                             scheduledRepo.scheduleMessage(address, textToSend, scheduleTime, currentSim?.subscriptionId)
-                            Toast.makeText(context, "پیامک برای ارسال زمان‌بندی شد", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, if (strings.isFa) "پیامک برای ارسال زمان‌بندی شد" else "SMS scheduled successfully", Toast.LENGTH_SHORT).show()
                         }
                     }
                 ) {
-                    Text("زمان‌بندی")
+                    Text(strings.scheduleConfirm)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showScheduleDialog = false }) {
-                    Text("انصراف")
+                    Text(strings.cancel)
                 }
             }
         )
+    }
+
+    // شیت گزینه‌های پیشرفته ارسال (لانگ‌پرس روی دکمه ارسال)
+    if (showSendOptionsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSendOptionsSheet = false }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 32.dp)
+            ) {
+                Text(
+                    text = strings.sendOptions,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // ۱. انتخاب سیم‌کارت در گوشی‌های دو سیم‌کارت
+                if (activeSims.size > 1) {
+                    Text(
+                        text = strings.sendViaSim,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (idx in activeSims.indices) {
+                            val sim = activeSims[idx]
+                            val isSelected = selectedSimIndex == idx
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectedSimIndex = idx }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.SimCard,
+                                        contentDescription = null,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            "SIM ${sim.slotIndex + 1}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (sim.carrierName.isNotBlank()) {
+                                            Text(
+                                                sim.carrierName,
+                                                fontSize = 11.sp,
+                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                // ۲. زمان‌بندی ارسال
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showSendOptionsSheet = false
+                            if (inputText.isNotBlank()) {
+                                showScheduleDialog = true
+                            } else {
+                                Toast.makeText(context, if (strings.isFa) "ابتدا متن پیام را بنویسید" else "Please type a message first", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(strings.scheduleSms, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(if (strings.isFa) "تنظیم تاخیر یا ساعت مشخص برای ارسال" else "Send at a specified delay", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // ۳. پاسخ‌های آماده
+                if (templates.isNotEmpty()) {
+                    Text(
+                        text = strings.quickResponses,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                    ) {
+                        items(templates, key = { it.id }) { tmpl ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp)
+                                    .clickable {
+                                        inputText = if (inputText.isBlank()) tmpl.text else "$inputText ${tmpl.text}"
+                                        scope.launch { templateRepo.useTemplate(tmpl.id) }
+                                        showSendOptionsSheet = false
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Quickreply, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = tmpl.text,
+                                        fontSize = 13.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

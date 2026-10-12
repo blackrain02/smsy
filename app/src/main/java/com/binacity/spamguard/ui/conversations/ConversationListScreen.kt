@@ -59,7 +59,9 @@ import com.binacity.spamguard.data.repository.SpamRepository
 import com.binacity.spamguard.data.repository.TemplateRepository
 import com.binacity.spamguard.ui.theme.BubblePalette
 import com.binacity.spamguard.ui.theme.ThemeMode
+import com.binacity.spamguard.ui.theme.AppLanguage
 import com.binacity.spamguard.ui.theme.ThemePreferences
+import com.binacity.spamguard.ui.util.LocalAppStrings
 import com.binacity.spamguard.ui.util.DateUtils
 import android.widget.Toast
 import kotlinx.coroutines.Job
@@ -81,6 +83,7 @@ fun ConversationListScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var conversations by remember { mutableStateOf(cachedConversations) }
 
@@ -324,18 +327,27 @@ fun ConversationListScreen(
                     )
                 } else {
                     TopAppBar(
-                        title = { Text("Smsy", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
+                        title = { Text(strings.appName, fontWeight = FontWeight.Bold, fontSize = 20.sp) },
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = MaterialTheme.colorScheme.surface,
                             titleContentColor = MaterialTheme.colorScheme.onSurface
                         ),
                         actions = {
                             IconButton(
+                                onClick = onNewMessageClick
+                            ) {
+                                Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = strings.newConversation,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(
                                 onClick = { showSettingsSheet = true }
                             ) {
                                 Icon(
                                     Icons.Default.Settings,
-                                    contentDescription = "Settings & Tools",
+                                    contentDescription = strings.settingsAndTools,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -344,7 +356,7 @@ fun ConversationListScreen(
                             ) {
                                 Icon(
                                     Icons.Default.Checklist,
-                                    contentDescription = "Batch Select",
+                                    contentDescription = strings.batchSelect,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -371,27 +383,12 @@ fun ConversationListScreen(
                             ) {
                                 Icon(
                                     Icons.Default.AutoFixHigh,
-                                    contentDescription = "Scan & Clean Spam",
+                                    contentDescription = strings.scanHistoricalSms,
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
                     )
-                }
-            }
-        },
-        floatingActionButton = {
-            AnimatedVisibility(
-                visible = !isSelectionMode,
-                enter = scaleIn(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
-                exit = scaleOut(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
-            ) {
-                FloatingActionButton(
-                    onClick = onNewMessageClick,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "New Conversation")
                 }
             }
         },
@@ -420,14 +417,14 @@ fun ConversationListScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "Set as default SMS app",
+                                strings.setAsDefaultTitle,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                "Required for offline AI spam protection",
+                                strings.setAsDefaultSub,
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             )
@@ -442,7 +439,7 @@ fun ConversationListScreen(
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("Set as Default", fontSize = 12.sp)
+                            Text(strings.setAsDefaultBtn, fontSize = 12.sp)
                         }
                     }
                 }
@@ -481,7 +478,7 @@ fun ConversationListScreen(
                         decorationBox = { innerTextField ->
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    "Search messages and contacts...",
+                                    strings.searchMessages,
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -547,7 +544,7 @@ fun ConversationListScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        if (searchQuery.isNotBlank()) "No messages match '$searchQuery'" else "No messages found",
+                        if (searchQuery.isNotBlank()) strings.noMessagesMatch(searchQuery) else strings.noMessagesFound,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 14.sp
                     )
@@ -591,7 +588,7 @@ fun ConversationListScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        "سنجاق‌شده‌ها (${pinnedList.size})",
+                                        strings.pinnedSection(pinnedList.size),
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.5.sp,
                                         color = MaterialTheme.colorScheme.primary
@@ -641,18 +638,31 @@ fun ConversationListScreen(
 
                         if (normalList.isNotEmpty()) {
                             item(key = "header_normal_section") {
-                                Row(
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Text(
-                                        "سایر پیام‌ها",
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Forum,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            strings.otherMessages(normalList.size),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -845,7 +855,7 @@ fun ConversationListScreen(
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
-                        if (target.isPinned) "برداشتن سنجاق از بالا" else "سنجاق کردن به بالا",
+                        if (target.isPinned) strings.unpinFromTop else strings.pinToTop,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
@@ -886,7 +896,7 @@ fun ConversationListScreen(
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
-                        if (target.isBlocked) "رفع مسدودسازی سرشماره" else "مسدودسازی قطعی (فهرست سیاه)",
+                        if (target.isBlocked) strings.unblockSender else strings.blockSender,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         color = if (target.isBlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
@@ -912,7 +922,7 @@ fun ConversationListScreen(
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
-                        if (target.aliasId != null) "ویرایش نام و سرشماره‌های ادغام‌شده" else "تنظیم نام و ادغام سرشماره‌ها",
+                        strings.nameAndMerge,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
@@ -938,7 +948,7 @@ fun ConversationListScreen(
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
-                        "افزودن به گروه ادغام موجود",
+                        strings.addToExistingGroup,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
@@ -964,7 +974,7 @@ fun ConversationListScreen(
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
-                        "انتقال به پوشه قرنطینه",
+                        strings.moveToSpam,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
@@ -1041,34 +1051,65 @@ fun ConversationListScreen(
                     .padding(horizontal = 20.dp, vertical = 8.dp)
                     .padding(bottom = 28.dp)
             ) {
-                Text(
-                    "تنظیمات و ابزارها",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        strings.settingsTitle,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    IconButton(onClick = { showSettingsSheet = false }) {
+                        Icon(Icons.Default.Close, contentDescription = strings.close)
+                    }
+                }
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // ۱. شخصی‌سازی ظاهری
-                Text("شخصی‌سازی ظاهر برنامه", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                // ۱. انتخاب زبان برنامه
+                Text(strings.language, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(8.dp))
+                val activeLanguage = ThemePreferences.currentLanguage.value
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AppLanguage.values().forEach { lang ->
+                        val isSelected = activeLanguage == lang
+                        val label = if (lang == AppLanguage.EN) strings.langEnglish else strings.langPersian
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                ThemePreferences.setLanguage(context, lang)
+                            },
+                            label = { Text(label, fontSize = 12.sp) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // ۲. شخصی‌سازی ظاهری (تم)
+                Text(strings.appearanceTheme, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                var currentThemeMode by remember { mutableStateOf(ThemePreferences.getThemeMode(context)) }
+                val activeThemeMode = ThemePreferences.currentThemeMode.value
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     ThemeMode.values().forEach { mode ->
-                        val isSelected = currentThemeMode == mode
+                        val isSelected = activeThemeMode == mode
                         val label = when (mode) {
-                            ThemeMode.SYSTEM -> "سیستم"
-                            ThemeMode.LIGHT -> "روشن"
-                            ThemeMode.DARK -> "تیره"
+                            ThemeMode.SYSTEM -> strings.themeSystem
+                            ThemeMode.LIGHT -> strings.themeLight
+                            ThemeMode.DARK -> strings.themeDark
                         }
                         FilterChip(
                             selected = isSelected,
                             onClick = {
-                                currentThemeMode = mode
                                 ThemePreferences.setThemeMode(context, mode)
                             },
                             label = { Text(label, fontSize = 12.sp) }
@@ -1076,28 +1117,27 @@ fun ConversationListScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // انتخاب پالت رنگی
-                var currentPalette by remember { mutableStateOf(ThemePreferences.getBubblePalette(context)) }
+                // ۳. انتخاب پالت رنگی
+                val activePalette = ThemePreferences.currentBubblePalette.value
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("پالت رنگ:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(strings.bubblePalette + ":", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     BubblePalette.values().forEach { pal ->
                         Box(
                             modifier = Modifier
                                 .size(28.dp)
                                 .background(pal.primaryColor, CircleShape)
                                 .clickable {
-                                    currentPalette = pal
                                     ThemePreferences.setBubblePalette(context, pal)
                                 },
                             contentAlignment = Alignment.Center
                         ) {
-                            if (currentPalette == pal) {
+                            if (activePalette == pal) {
                                 Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                             }
                         }
@@ -1108,24 +1148,36 @@ fun ConversationListScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // ۲. فرمت تقویم
+                // ۴. فرمت تقویم
+                Text(strings.calendarFormat, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showCalendarDialog = true; showSettingsSheet = false }
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("فرمت تقویم و نمایش تاریخ", fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
-                    }
-                    Text(if (isSolarCalendar) "شمسی" else "میلادی", fontSize = 12.5.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    FilterChip(
+                        selected = isSolarCalendar,
+                        onClick = {
+                            DateUtils.setSolarCalendar(context, true)
+                            isSolarCalendar = true
+                        },
+                        label = { Text(strings.calendarSolar, fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = !isSolarCalendar,
+                        onClick = {
+                            DateUtils.setSolarCalendar(context, false)
+                            isSolarCalendar = false
+                        },
+                        label = { Text(strings.calendarGregorian, fontSize = 12.sp) }
+                    )
                 }
 
-                // ۳. مدیریت فهرست سیاه قطعی
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // ۵. مدیریت فهرست سیاه قطعی
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1135,10 +1187,10 @@ fun ConversationListScreen(
                 ) {
                     Icon(Icons.Default.Block, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("مدیریت فهرست سیاه (مسدودها)", fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
+                    Text(strings.definitiveBlocklist, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
                 }
 
-                // ۴. پاسخ‌های آماده و هوشمند
+                // ۶. پاسخ‌های آماده و هوشمند
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1148,15 +1200,15 @@ fun ConversationListScreen(
                 ) {
                     Icon(Icons.Default.Quickreply, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("پاسخ‌های آماده و استخراج هوشمند", fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
+                    Text(strings.manageTemplates, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // ۵. پشتیبان‌گیری و بازگردانی آفلاین
-                Text("پشتیبان‌گیری و بازگردانی آفلاین", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                // ۷. پشتیبان‌گیری و بازگردانی آفلاین
+                Text(strings.exportBackup + " / " + strings.restoreBackup, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1170,7 +1222,7 @@ fun ConversationListScreen(
                     ) {
                         Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("خروجی پشتیبان", fontSize = 12.sp)
+                        Text(strings.exportBackup, fontSize = 12.sp)
                     }
 
                     OutlinedButton(
@@ -1181,159 +1233,211 @@ fun ConversationListScreen(
                     ) {
                         Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("بازگردانی فایل", fontSize = 12.sp)
+                        Text(strings.restoreBackup, fontSize = 12.sp)
                     }
                 }
             }
         }
     }
 
-    // دیالوگ مدیریت فهرست سیاه قطعی
+    // شیت مدیریت فهرست سیاه قطعی
     if (showBlocklistDialog) {
         val blockedList by smsRepository.blocklistRepository.getAllBlocked().collectAsState(initial = emptyList())
         var newSenderInput by remember { mutableStateOf("") }
-        AlertDialog(
+        ModalBottomSheet(
             onDismissRequest = { showBlocklistDialog = false },
-            title = { Text("فهرست سیاه قطعی", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .padding(bottom = 28.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(strings.definitiveBlocklist, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    IconButton(onClick = { showBlocklistDialog = false }) {
+                        Icon(Icons.Default.Close, contentDescription = strings.close)
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    if (strings.isFa) "پیامک‌های دریافتی از این سرشماره‌ها بدون ارزیابی مستقیم قرنطینه می‌شوند."
+                    else "Incoming messages from these senders are isolated immediately without evaluation.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = newSenderInput,
+                        onValueChange = { newSenderInput = it },
+                        placeholder = { Text(if (strings.isFa) "شماره یا سرشماره..." else "Number or sender...", fontSize = 12.sp) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (newSenderInput.isNotBlank()) {
+                                scope.launch {
+                                    smsRepository.blocklistRepository.blockSender(newSenderInput.trim())
+                                    newSenderInput = ""
+                                    refreshList()
+                                }
+                            }
+                        }
+                    ) {
+                        Text(strings.add)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                if (blockedList.isEmpty()) {
                     Text(
-                        "پیامک‌های دریافتی از این سرشماره‌ها بدون ارزیابی مستقیم قرنطینه می‌شوند.",
-                        fontSize = 12.sp,
+                        if (strings.isFa) "هیچ سرشماره‌ای در فهرست سیاه نیست." else "No senders in blocklist.",
+                        fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = newSenderInput,
-                            onValueChange = { newSenderInput = it },
-                            placeholder = { Text("شماره یا سرشماره...", fontSize = 12.sp) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                if (newSenderInput.isNotBlank()) {
-                                    scope.launch {
-                                        smsRepository.blocklistRepository.blockSender(newSenderInput.trim())
-                                        newSenderInput = ""
-                                        refreshList()
-                                    }
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+                        items(blockedList, key = { it.sender }) { item ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(item.sender, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text(item.reason, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                            }
-                        ) {
-                            Text("افزودن")
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (blockedList.isEmpty()) {
-                        Text("هیچ سرشماره‌ای در فهرست سیاه نیست.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else {
-                        LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
-                            items(blockedList, key = { it.sender }) { item ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(item.sender, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Text(item.reason, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            scope.launch {
-                                                smsRepository.blocklistRepository.unblockSender(item.sender)
-                                                refreshList()
-                                            }
+                                IconButton(
+                                    onClick = {
+                                        scope.launch {
+                                            smsRepository.blocklistRepository.unblockSender(item.sender)
+                                            refreshList()
                                         }
-                                    ) {
-                                        Icon(Icons.Default.Delete, contentDescription = "حذف", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                                     }
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                                 }
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f))
                             }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f))
                         }
                     }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showBlocklistDialog = false }) {
-                    Text("بستن")
                 }
             }
-        )
+        }
     }
 
-    // دیالوگ مدیریت پاسخ‌های آماده و استخراج هوشمند
+    // شیت مدیریت پاسخ‌های آماده و استخراج هوشمند
     if (showTemplatesDialog) {
         val templatesList by templateRepo.getAllTemplates().collectAsState(initial = emptyList())
         var newTemplateInput by remember { mutableStateOf("") }
         var isExtracting by remember { mutableStateOf(false) }
 
-        AlertDialog(
+        ModalBottomSheet(
             onDismissRequest = { showTemplatesDialog = false },
-            title = { Text("پاسخ‌های آماده و هوشمند", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .padding(bottom = 28.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(strings.manageTemplates, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    IconButton(onClick = { showTemplatesDialog = false }) {
+                        Icon(Icons.Default.Close, contentDescription = strings.close)
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Button(
+                    onClick = {
+                        if (!isExtracting) {
+                            isExtracting = true
+                            scope.launch {
+                                val added = templateRepo.autoImportSmartTemplates()
+                                isExtracting = false
+                                val msg = if (strings.isFa) "$added الگوی پرتکرار از تاریخچه ارسالی شما استخراج شد"
+                                else "$added frequent response templates extracted"
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        if (isExtracting) {
+                            if (strings.isFa) "در حال تحلیل پیام‌ها..." else "Analyzing sent messages..."
+                        } else {
+                            if (strings.isFa) "استخراج خودکار پاسخ‌ها با هوش مصنوعی محلی" else "Auto-extract templates with offline AI"
+                        },
+                        fontSize = 12.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = newTemplateInput,
+                        onValueChange = { newTemplateInput = it },
+                        placeholder = { Text(if (strings.isFa) "متن پاسخ آماده جدید..." else "New template text...", fontSize = 12.sp) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
-                            if (!isExtracting) {
-                                isExtracting = true
+                            if (newTemplateInput.isNotBlank()) {
                                 scope.launch {
-                                    val added = templateRepo.autoImportSmartTemplates()
-                                    isExtracting = false
-                                    Toast.makeText(context, "$added الگوی پرتکرار از تاریخچه ارسالی شما استخراج شد", Toast.LENGTH_SHORT).show()
+                                    templateRepo.addTemplate(newTemplateInput)
+                                    newTemplateInput = ""
                                 }
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(if (isExtracting) "در حال تحلیل پیام‌ها..." else "استخراج خودکار پاسخ‌ها با هوش مصنوعی محلی", fontSize = 12.sp)
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = newTemplateInput,
-                            onValueChange = { newTemplateInput = it },
-                            placeholder = { Text("متن پاسخ آماده جدید...", fontSize = 12.sp) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                if (newTemplateInput.isNotBlank()) {
-                                    scope.launch {
-                                        templateRepo.addTemplate(newTemplateInput)
-                                        newTemplateInput = ""
-                                    }
-                                }
-                            }
-                        ) {
-                            Text("ثبت")
                         }
+                    ) {
+                        Text(strings.add)
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                    LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
+                if (templatesList.isEmpty()) {
+                    Text(
+                        if (strings.isFa) "هیچ پاسخ آماده‌ای ثبت نشده است." else "No quick templates saved.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
                         items(templatesList, key = { it.id }) { item ->
                             Row(
                                 modifier = Modifier
@@ -1345,7 +1449,11 @@ fun ConversationListScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(item.text, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     if (item.usageCount > 0) {
-                                        Text("${item.usageCount} بار استفاده شده", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                        Text(
+                                            if (strings.isFa) "${item.usageCount} بار استفاده شده" else "Used ${item.usageCount} times",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
                                     }
                                 }
                                 IconButton(
@@ -1353,23 +1461,18 @@ fun ConversationListScreen(
                                         scope.launch { templateRepo.deleteTemplate(item.id) }
                                     }
                                 ) {
-                                    Icon(Icons.Default.Delete, contentDescription = "حذف", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                                 }
                             }
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f))
                         }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showTemplatesDialog = false }) {
-                    Text("بستن")
-                }
             }
-        )
+        }
     }
 
-    // دیالوگ نام‌گذاری و ادغام سرشماره‌ها
+    // شیت نام‌گذاری و ادغام سرشماره‌ها
     if (conversationToMerge != null) {
         val target = conversationToMerge!!
         var aliasName by remember(target) {
@@ -1383,123 +1486,147 @@ fun ConversationListScreen(
         }
         var newNumberInput by remember { mutableStateOf("") }
 
-        AlertDialog(
+        ModalBottomSheet(
             onDismissRequest = { conversationToMerge = null },
-            title = { Text("Name & Merge Senders", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "Set a custom name (e.g. Bank Mellat) and merge multiple numbers into one unified thread.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .padding(bottom = 28.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(strings.nameAndMerge, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    IconButton(onClick = { conversationToMerge = null }) {
+                        Icon(Icons.Default.Close, contentDescription = strings.close)
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    if (strings.isFa) "یک نام دلخواه انتخاب کنید و چندین سرشماره مختلف را در یک گفتگوی یکپارچه ادغام نمایید."
+                    else "Set a custom name and merge multiple senders into one unified thread.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
 
+                OutlinedTextField(
+                    value = aliasName,
+                    onValueChange = { aliasName = it },
+                    label = { Text(if (strings.isFa) "نام سرشماره یا مجموعه" else "Custom Display Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    (if (strings.isFa) "سرشماره‌های ادغام‌شده" else "Merged Senders") + " (${currentNumbers.size}):",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    for (num in currentNumbers) {
+                        InputChip(
+                            selected = false,
+                            onClick = {},
+                            label = { Text(num, fontSize = 12.sp) },
+                            trailingIcon = {
+                                if (currentNumbers.size > 1) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Remove",
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .clickable {
+                                                currentNumbers = currentNumbers - num
+                                            }
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     OutlinedTextField(
-                        value = aliasName,
-                        onValueChange = { aliasName = it },
-                        label = { Text("Custom Name (e.g. Bank Mellat)") },
-                        modifier = Modifier.fillMaxWidth(),
+                        value = newNumberInput,
+                        onValueChange = { newNumberInput = it },
+                        placeholder = { Text(if (strings.isFa) "افزودن سرشماره دیگر..." else "Add number...", fontSize = 12.sp) },
+                        modifier = Modifier.weight(1f),
                         singleLine = true
                     )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Text("Merged Numbers (${currentNumbers.size}):", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    IconButton(
+                        onClick = {
+                            val clean = newNumberInput.trim()
+                            if (clean.isNotBlank()) {
+                                currentNumbers = currentNumbers + clean
+                                newNumberInput = ""
+                            }
+                        },
+                        enabled = newNumberInput.isNotBlank()
                     ) {
-                        for (num in currentNumbers) {
-                            InputChip(
-                                selected = false,
-                                onClick = {},
-                                label = { Text(num, fontSize = 12.sp) },
-                                trailingIcon = {
-                                    if (currentNumbers.size > 1) {
-                                        Icon(
-                                            Icons.Default.Close,
-                                            contentDescription = "Remove",
-                                            modifier = Modifier
-                                                .size(14.dp)
-                                                .clickable {
-                                                    currentNumbers = currentNumbers - num
-                                                }
-                                        )
-                                    }
-                                }
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = newNumberInput,
-                            onValueChange = { newNumberInput = it },
-                            placeholder = { Text("Add number...", fontSize = 12.sp) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        IconButton(
-                            onClick = {
-                                val clean = newNumberInput.trim()
-                                if (clean.isNotBlank()) {
-                                    currentNumbers = currentNumbers + clean
-                                    newNumberInput = ""
-                                }
-                            },
-                            enabled = newNumberInput.isNotBlank()
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "Add")
-                        }
+                        Icon(Icons.Default.Add, contentDescription = strings.add)
                     }
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (aliasName.isNotBlank() && currentNumbers.isNotEmpty()) {
-                            smsRepository.aliasRepository.saveAlias(
-                                displayName = aliasName,
-                                numbers = currentNumbers,
-                                existingId = target.aliasId
-                            )
-                            conversationToMerge = null
-                            refreshList()
-                        }
-                    },
-                    enabled = aliasName.isNotBlank() && currentNumbers.isNotEmpty()
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Save & Merge")
-                }
-            },
-            dismissButton = {
-                Row {
                     if (target.aliasId != null) {
-                        TextButton(
+                        OutlinedButton(
                             onClick = {
                                 smsRepository.aliasRepository.deleteAlias(target.aliasId)
                                 conversationToMerge = null
                                 refreshList()
-                            }
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Text("Unmerge", color = MaterialTheme.colorScheme.error)
+                            Text(if (strings.isFa) "تفکیک (حذف ادغام)" else "Unmerge")
                         }
                     }
-                    TextButton(onClick = { conversationToMerge = null }) {
-                        Text("Cancel")
+                    Button(
+                        onClick = {
+                            if (aliasName.isNotBlank() && currentNumbers.isNotEmpty()) {
+                                smsRepository.aliasRepository.saveAlias(
+                                    displayName = aliasName,
+                                    numbers = currentNumbers,
+                                    existingId = target.aliasId
+                                )
+                                conversationToMerge = null
+                                refreshList()
+                            }
+                        },
+                        enabled = aliasName.isNotBlank() && currentNumbers.isNotEmpty(),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(strings.save)
                     }
                 }
             }
-        )
+        }
     }
 
     // دیالوگ تایید حذف گفتگو
@@ -1570,89 +1697,101 @@ fun ConversationListScreen(
         )
     }
 
-    // دیالوگ افزودن سرشماره به گروه ادغام موجود
+    // شیت افزودن سرشماره به گروه ادغام موجود
     if (conversationToAddToGroup != null) {
         val target = conversationToAddToGroup!!
         val allAliases = remember(target) { smsRepository.aliasRepository.getAllAliases() }
-        AlertDialog(
+        ModalBottomSheet(
             onDismissRequest = { conversationToAddToGroup = null },
-            icon = { Icon(Icons.Default.GroupAdd, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Add to Merged Group", fontWeight = FontWeight.Bold) },
-            text = {
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .padding(bottom = 28.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(strings.addToExistingGroup, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    IconButton(onClick = { conversationToAddToGroup = null }) {
+                        Icon(Icons.Default.Close, contentDescription = strings.close)
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+
                 if (allAliases.isEmpty()) {
                     Text(
-                        "No merged groups exist yet. Create a group first with 'Set Name & Merge Senders'.",
-                        fontSize = 13.sp
+                        if (strings.isFa) "هنوز هیچ گروه ادغامی وجود ندارد. ابتدا از گزینه ادغام سرشماره‌ها یک گروه بسازید."
+                        else "No merged groups exist yet. Create a group first with 'Name & Merge Senders'.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    Column(
+                    Text(
+                        if (strings.isFa) "گروه مورد نظر برای افزودن ${target.contactName ?: target.address} را انتخاب کنید:"
+                        else "Select an existing group to add ${target.contactName ?: target.address} into:",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 280.dp)
+                            .heightIn(max = 280.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(
-                            "Select an existing group to add ${target.contactName ?: target.address} into:",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            items(allAliases, key = { it.id }) { alias ->
-                                Surface(
-                                    onClick = {
-                                        val targetNumbers = if (target.mergedAddresses.isNotEmpty()) target.mergedAddresses else setOf(target.address)
-                                        smsRepository.aliasRepository.addNumbersToAlias(alias.id, targetNumbers)
-                                        conversationToAddToGroup = null
-                                        refreshList()
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.fillMaxWidth()
+                        items(allAliases, key = { it.id }) { alias ->
+                            Surface(
+                                onClick = {
+                                    val targetNumbers = if (target.mergedAddresses.isNotEmpty()) target.mergedAddresses else setOf(target.address)
+                                    smsRepository.aliasRepository.addNumbersToAlias(alias.id, targetNumbers)
+                                    conversationToAddToGroup = null
+                                    refreshList()
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Group,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(24.dp)
+                                    Icon(
+                                        Icons.Default.Group,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = alias.displayName,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
                                         )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = alias.displayName,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp
-                                            )
-                                            Text(
-                                                text = "${alias.numbers.size} numbers (${alias.numbers.take(3).joinToString(", ")})",
-                                                fontSize = 11.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
+                                        Text(
+                                            text = "${alias.numbers.size} numbers (${alias.numbers.take(3).joinToString(", ")})",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                             }
                         }
                     }
                 }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { conversationToAddToGroup = null }) {
-                    Text("Cancel")
-                }
             }
-        )
+        }
     }
 
     // دیالوگ تایید انتقال گروهی به اسپم (قرنطینه)
@@ -1910,20 +2049,28 @@ fun ConversationItem(
 
                 if (conversation.mergedAddresses.size > 1) {
                     Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                MaterialTheme.colorScheme.secondaryContainer,
-                                RoundedCornerShape(4.dp)
-                            )
-                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text(
-                            text = "${conversation.mergedAddresses.size} senders",
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CallMerge,
+                                contentDescription = "Merged Senders",
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(11.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "${conversation.mergedAddresses.size}",
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

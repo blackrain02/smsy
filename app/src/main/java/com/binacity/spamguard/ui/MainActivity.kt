@@ -31,6 +31,12 @@ import com.binacity.spamguard.ui.chat.ChatScreen
 import com.binacity.spamguard.ui.conversations.ConversationListScreen
 import com.binacity.spamguard.ui.quarantine.QuarantineScreen
 import com.binacity.spamguard.ui.theme.SmsyTheme
+import com.binacity.spamguard.ui.theme.ThemePreferences
+import com.binacity.spamguard.ui.theme.AppLanguage
+import com.binacity.spamguard.ui.util.AppStrings
+import com.binacity.spamguard.ui.util.LocalAppStrings
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.binacity.spamguard.data.model.Conversation
 
@@ -68,101 +74,110 @@ class MainActivity : ComponentActivity() {
         checkAndRequestPermissions()
 
         setContent {
-            SmsyTheme {
-                var currentScreen by remember { mutableStateOf<Screen>(Screen.Conversations) }
-                val unreadSpamCount by spamRepository.getUnreadCount().collectAsState(initial = 0)
-                val conversationListState = rememberLazyListState()
-                var conversationList by remember { mutableStateOf<List<Conversation>>(emptyList()) }
+            ThemePreferences.init(applicationContext)
+            val appLanguage = ThemePreferences.currentLanguage.value
+            val layoutDirection = if (appLanguage == AppLanguage.FA) LayoutDirection.Rtl else LayoutDirection.Ltr
+            val strings = remember(appLanguage) { AppStrings(appLanguage) }
 
-                // مدیریت دکمه و ژست بازگشت سیستم‌عامل اندروید جهت جلوگیری از بسته شدن برنامه
-                BackHandler(enabled = currentScreen !is Screen.Conversations) {
-                    currentScreen = Screen.Conversations
-                }
+            CompositionLocalProvider(
+                LocalLayoutDirection provides layoutDirection,
+                LocalAppStrings provides strings
+            ) {
+                SmsyTheme {
+                    var currentScreen by remember { mutableStateOf<Screen>(Screen.Conversations) }
+                    val unreadSpamCount by spamRepository.getUnreadCount().collectAsState(initial = 0)
+                    val conversationListState = rememberLazyListState()
+                    var conversationList by remember { mutableStateOf<List<Conversation>>(emptyList()) }
 
-                Scaffold(
-                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                    bottomBar = {
-                        if (currentScreen !is Screen.Chat && currentScreen !is Screen.NewMessage) {
-                            Surface(
-                                tonalElevation = 3.dp,
-                                shadowElevation = 8.dp,
-                                color = MaterialTheme.colorScheme.surface
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .navigationBarsPadding()
-                                        .height(54.dp)
-                                        .padding(horizontal = 24.dp),
-                                    horizontalArrangement = Arrangement.SpaceAround,
-                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    // مدیریت دکمه و ژست بازگشت سیستم‌عامل اندروید جهت جلوگیری از بسته شدن برنامه
+                    BackHandler(enabled = currentScreen !is Screen.Conversations) {
+                        currentScreen = Screen.Conversations
+                    }
+
+                    Scaffold(
+                        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                        bottomBar = {
+                            if (currentScreen !is Screen.Chat && currentScreen !is Screen.NewMessage) {
+                                Surface(
+                                    tonalElevation = 3.dp,
+                                    shadowElevation = 8.dp,
+                                    color = MaterialTheme.colorScheme.surface
                                 ) {
-                                    val isInbox = currentScreen is Screen.Conversations
-                                    Surface(
-                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                                        color = if (isInbox) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent,
-                                        modifier = Modifier.clickable { currentScreen = Screen.Conversations }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .navigationBarsPadding()
+                                            .height(54.dp)
+                                            .padding(horizontal = 24.dp),
+                                        horizontalArrangement = Arrangement.SpaceAround,
+                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                        val isInbox = currentScreen is Screen.Conversations
+                                        Surface(
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                            color = if (isInbox) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent,
+                                            modifier = Modifier.clickable { currentScreen = Screen.Conversations }
                                         ) {
-                                            Icon(
-                                                Icons.Default.Email,
-                                                contentDescription = "Inbox",
-                                                tint = if (isInbox) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(19.dp)
-                                            )
-                                            if (isInbox) {
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    "صندوق پیام",
-                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                                    fontSize = 12.sp,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    val isQuarantine = currentScreen is Screen.Quarantine
-                                    Surface(
-                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                                        color = if (isQuarantine) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent,
-                                        modifier = Modifier.clickable { currentScreen = Screen.Quarantine }
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                                        ) {
-                                            BadgedBox(badge = {
-                                                if (unreadSpamCount > 0) {
-                                                    Badge { Text(unreadSpamCount.toString(), fontSize = 10.sp) }
-                                                }
-                                            }) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                            ) {
                                                 Icon(
-                                                    Icons.Default.Shield,
-                                                    contentDescription = "Quarantine",
-                                                    tint = if (isQuarantine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    Icons.Default.Email,
+                                                    contentDescription = "Inbox",
+                                                    tint = if (isInbox) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                                                     modifier = Modifier.size(19.dp)
                                                 )
+                                                if (isInbox) {
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        strings.navMessages,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                                        fontSize = 12.sp,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                    )
+                                                }
                                             }
-                                            if (isQuarantine) {
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    "قرنطینه",
-                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                                    fontSize = 12.sp,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                                )
+                                        }
+
+                                        val isQuarantine = currentScreen is Screen.Quarantine
+                                        Surface(
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                            color = if (isQuarantine) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent,
+                                            modifier = Modifier.clickable { currentScreen = Screen.Quarantine }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                            ) {
+                                                BadgedBox(badge = {
+                                                    if (unreadSpamCount > 0) {
+                                                        Badge { Text(unreadSpamCount.toString(), fontSize = 10.sp) }
+                                                    }
+                                                }) {
+                                                    Icon(
+                                                        Icons.Default.Shield,
+                                                        contentDescription = "Quarantine",
+                                                        tint = if (isQuarantine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(19.dp)
+                                                    )
+                                                }
+                                                if (isQuarantine) {
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        strings.navSpam,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                                        fontSize = 12.sp,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                ) { innerPadding ->
+                    ) { innerPadding ->
                     Surface(
                         modifier = Modifier
                             .fillMaxSize()
@@ -241,6 +256,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
 
     private fun checkAndRequestPermissions() {
         val permissions = mutableListOf(

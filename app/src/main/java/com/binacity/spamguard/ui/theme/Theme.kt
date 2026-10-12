@@ -1,10 +1,8 @@
 package com.binacity.spamguard.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 
 private val LightColorScheme = lightColorScheme(
@@ -36,14 +34,14 @@ fun SmsyTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    val themeMode = remember { ThemePreferences.getThemeMode(context) }
-    val palette = remember { ThemePreferences.getBubblePalette(context) }
+    ThemePreferences.init(context)
+    val themeMode = ThemePreferences.currentThemeMode.value
+    val palette = ThemePreferences.currentBubblePalette.value
 
     val isDark = when (themeMode) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
         ThemeMode.SYSTEM -> darkTheme
-        else -> darkTheme
     }
 
     val baseScheme = if (isDark) DarkColorScheme else LightColorScheme

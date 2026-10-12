@@ -28,6 +28,10 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.LayoutDirection
+import com.binacity.spamguard.ui.util.LocalAppStrings
 import com.binacity.spamguard.data.local.SpamMessageEntity
 import com.binacity.spamguard.data.repository.SmsRepository
 import com.binacity.spamguard.data.repository.SpamRepository
@@ -427,15 +431,32 @@ fun SenderSpamGroupItem(
 
         Spacer(modifier = Modifier.height(6.dp))
 
+        val cleanBody = remember(group.latestMessage.body) {
+            group.latestMessage.body.replace(Regex("\\s+"), " ").trim()
+        }
+        val isRtl = remember(cleanBody) {
+            cleanBody.any { it in '\u0600'..'\u06FF' || it in '\uFB50'..'\uFDFF' || it in '\uFE70'..'\uFEFF' }
+        }
+        val layoutDir = LocalLayoutDirection.current
+        val textAlignment = if (isRtl) {
+            if (layoutDir == LayoutDirection.Rtl) TextAlign.Start else TextAlign.Right
+        } else {
+            TextAlign.Start
+        }
+
         // نمایش پیام شاخص اخیر
         Text(
-            text = group.latestMessage.body,
+            text = cleanBody,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 13.sp,
             lineHeight = 19.sp,
             maxLines = if (expanded) Int.MAX_VALUE else 2,
             overflow = TextOverflow.Ellipsis,
-            style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
+            textAlign = textAlignment,
+            modifier = Modifier.fillMaxWidth(),
+            style = LocalTextStyle.current.copy(
+                textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr
+            )
         )
 
         // در صورت باز شدن و داشتن بیش از یک پیام، سایر پیام‌های این سرشماره لیست می‌شوند
@@ -460,6 +481,13 @@ fun SenderSpamGroupItem(
 
                 for (idx in group.messages.indices) {
                     val msg = group.messages[idx]
+                    val itemClean = msg.body.replace(Regex("\\s+"), " ").trim()
+                    val itemIsRtl = itemClean.any { it in '\u0600'..'\u06FF' || it in '\uFB50'..'\uFDFF' || it in '\uFE70'..'\uFEFF' }
+                    val itemAlign = if (itemIsRtl) {
+                        if (layoutDir == LayoutDirection.Rtl) TextAlign.Start else TextAlign.Right
+                    } else {
+                        TextAlign.Start
+                    }
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -486,11 +514,15 @@ fun SenderSpamGroupItem(
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = msg.body,
+                                text = itemClean,
                                 fontSize = 12.sp,
                                 lineHeight = 18.sp,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
+                                textAlign = itemAlign,
+                                modifier = Modifier.fillMaxWidth(),
+                                style = LocalTextStyle.current.copy(
+                                    textDirection = if (itemIsRtl) TextDirection.Rtl else TextDirection.Ltr
+                                )
                             )
                         }
                     }
