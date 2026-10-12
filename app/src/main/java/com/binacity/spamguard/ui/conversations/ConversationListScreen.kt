@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -34,10 +35,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -78,6 +82,8 @@ fun ConversationListScreen(
         }
     }
     var searchQuery by remember { mutableStateOf("") }
+    var isSolarCalendar by remember { mutableStateOf(DateUtils.isSolarCalendar(context)) }
+    var showCalendarDialog by remember { mutableStateOf(false) }
     var isDefaultApp by remember { mutableStateOf(checkIsDefaultSmsApp(context)) }
     var isScanning by remember { mutableStateOf(false) }
     var scanProgress by remember { mutableStateOf<ScanProgress?>(null) }
@@ -268,6 +274,15 @@ fun ConversationListScreen(
                         ),
                         actions = {
                             IconButton(
+                                onClick = { showCalendarDialog = true }
+                            ) {
+                                Icon(
+                                    Icons.Default.CalendarMonth,
+                                    contentDescription = "Calendar Format",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(
                                 onClick = { isSelectionMode = true }
                             ) {
                                 Icon(
@@ -376,57 +391,64 @@ fun ConversationListScreen(
                 }
             }
 
-            // فیلد جستجو در گفتگوها
+            // فیلد جستجو در گفتگوها (طراحی فشرده و مدرن)
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         Icons.Default.Search,
                         contentDescription = "Search",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    TextField(
+                    BasicTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search messages and contacts...", fontSize = 13.sp) },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
+                        textStyle = LocalTextStyle.current.copy(
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        decorationBox = { innerTextField ->
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    "Search messages and contacts...",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            innerTextField()
+                        }
                     )
                     if (searchQuery.isNotEmpty()) {
                         IconButton(
                             onClick = { searchQuery = "" },
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(20.dp)
                         ) {
                             Icon(
                                 Icons.Default.Close,
                                 contentDescription = "Clear",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             // لیست پیامک‌ها
             if (!hasSmsPermission) {
@@ -488,6 +510,7 @@ fun ConversationListScreen(
                             conversation = item,
                             isSelectionMode = isSelectionMode,
                             isSelected = isSelected,
+                            isSolarCalendar = isSolarCalendar,
                             onClick = {
                                 if (isSelectionMode) {
                                     selectedConversations = if (isSelected) {
@@ -518,6 +541,74 @@ fun ConversationListScreen(
                 }
             }
         }
+    }
+
+    // دیالوگ انتخاب نوع تقویم (شمسی / میلادی با ارقام انگلیسی)
+    if (showCalendarDialog) {
+        AlertDialog(
+            onDismissRequest = { showCalendarDialog = false },
+            title = { Text("Calendar Format / نوع تقویم", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+            text = {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                DateUtils.setSolarCalendar(context, true)
+                                isSolarCalendar = true
+                                showCalendarDialog = false
+                            }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSolarCalendar,
+                            onClick = {
+                                DateUtils.setSolarCalendar(context, true)
+                                isSolarCalendar = true
+                                showCalendarDialog = false
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Solar Hijri (شمسی)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("e.g. 1403/07/20", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                DateUtils.setSolarCalendar(context, false)
+                                isSolarCalendar = false
+                                showCalendarDialog = false
+                            }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = !isSolarCalendar,
+                            onClick = {
+                                DateUtils.setSolarCalendar(context, false)
+                                isSolarCalendar = false
+                                showCalendarDialog = false
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Gregorian (میلادی)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("e.g. 2026/10/12", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCalendarDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 
     // منوی عملیات گفتگو (سنجاق کردن / ادغام سرشماره‌ها / حذف)
@@ -1210,6 +1301,7 @@ fun ConversationItem(
     conversation: Conversation,
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
+    isSolarCalendar: Boolean = true,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -1305,14 +1397,31 @@ fun ConversationItem(
 
             Spacer(modifier = Modifier.height(4.dp))
 
+            val cleanSnippet = remember(conversation.snippet) {
+                conversation.snippet.replace(Regex("\\s+"), " ").trim()
+            }
+            val isRtl = remember(cleanSnippet) {
+                cleanSnippet.any { it in '\u0600'..'\u06FF' || it in '\uFB50'..'\uFDFF' || it in '\uFE70'..'\uFEFF' }
+            }
+            val layoutDir = LocalLayoutDirection.current
+            val textAlignment = if (isRtl) {
+                if (layoutDir == LayoutDirection.Rtl) TextAlign.Start else TextAlign.Right
+            } else {
+                TextAlign.Start
+            }
+
             Text(
-                text = conversation.snippet,
+                text = cleanSnippet,
                 color = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = if (isUnread) FontWeight.Medium else FontWeight.Normal,
                 fontSize = 13.sp,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                style = TextStyle(textDirection = TextDirection.Content)
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = textAlignment,
+                style = TextStyle(
+                    textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Content
+                )
             )
         }
 
@@ -1333,8 +1442,8 @@ fun ConversationItem(
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                 }
-                val formattedDate = remember(conversation.date) {
-                    DateUtils.formatConversationDate(conversation.date)
+                val formattedDate = remember(conversation.date, isSolarCalendar) {
+                    DateUtils.formatConversationDate(conversation.date, isSolarCalendar)
                 }
                 Text(
                     text = formattedDate,

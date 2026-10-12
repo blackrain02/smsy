@@ -32,25 +32,46 @@ object NotificationHelper {
     fun showMessageNotification(context: Context, sender: String, body: String) {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("sender", sender)
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            0,
+            sender.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val groupKey = "sms_group_" + sender.trim()
+        val summaryId = sender.hashCode()
+        val messageId = (System.currentTimeMillis() % 1000000000).toInt()
+
+        // اعلان پیام مجزای این سرشماره داخل گروه
+        val messageNotification = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_email)
             .setContentTitle(sender)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setGroup(groupKey)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
 
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(System.currentTimeMillis().toInt(), notification)
+        // اعلان تجمیعی سرشماره جهت گروه‌بندی خودکار در پنل اعلان‌ها
+        val summaryNotification = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setContentTitle(sender)
+            .setContentText(body)
+            .setStyle(NotificationCompat.InboxStyle().setSummaryText(sender))
+            .setGroup(groupKey)
+            .setGroupSummary(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        manager.notify(messageId, messageNotification)
+        manager.notify(summaryId, summaryNotification)
     }
 }

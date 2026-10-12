@@ -5,20 +5,25 @@ import android.database.ContentObserver
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.ContactsContract
 import android.provider.Telephony
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -74,6 +79,7 @@ fun ChatScreen(
     mergedAddresses: Set<String> = emptySet()
 ) {
     val context = LocalContext.current
+    val isSolarCalendar = remember { DateUtils.isSolarCalendar(context) }
     val clipboardManager = LocalClipboardManager.current
     var messages by remember { mutableStateOf<List<Message>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
@@ -163,6 +169,33 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    // دکمه افزودن/ویرایش مخاطب برای شماره‌های ذخیره‌نشده در دفترچه تلفن
+                    if (contactName.isNullOrBlank() && address.any { it.isDigit() }) {
+                        IconButton(
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_INSERT_OR_EDIT).apply {
+                                    type = ContactsContract.Contacts.CONTENT_ITEM_TYPE
+                                    putExtra(ContactsContract.Intents.Insert.PHONE, address)
+                                }
+                                try {
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    val fallbackIntent = Intent(Intent.ACTION_INSERT).apply {
+                                        type = ContactsContract.RawContacts.CONTENT_TYPE
+                                        putExtra(ContactsContract.Intents.Insert.PHONE, address)
+                                    }
+                                    context.startActivity(fallbackIntent)
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.PersonAdd,
+                                contentDescription = "Add or update contact",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
                     // دکمه تماس مستقیم با فرستنده پیامک
                     if (address.any { it.isDigit() }) {
                         IconButton(
@@ -192,70 +225,89 @@ fun ChatScreen(
                     .fillMaxWidth()
                     .imePadding()
                     .navigationBarsPadding(),
-                tonalElevation = 3.dp,
+                tonalElevation = 2.dp,
                 color = MaterialTheme.colorScheme.surface
             ) {
                 Column {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TextField(
-                            value = inputText,
-                            onValueChange = { inputText = it },
-                            placeholder = { Text("Text message", fontSize = 14.sp) },
+                        Surface(
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(24.dp),
-                            textStyle = LocalTextStyle.current.copy(
-                                textDirection = TextDirection.Content,
-                                fontSize = 14.sp
-                            ),
-                            colors = TextFieldDefaults.colors(
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        )
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                BasicTextField(
+                                    value = inputText,
+                                    onValueChange = { inputText = it },
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 4,
+                                    textStyle = LocalTextStyle.current.copy(
+                                        textDirection = TextDirection.Content,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    decorationBox = { innerTextField ->
+                                        if (inputText.isEmpty()) {
+                                            Text(
+                                                "Text message",
+                                                fontSize = 14.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                )
+
+                                val counter = remember(inputText) { calculateSmsCounter(inputText) }
+                                if (inputText.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "${counter.remaining}/${counter.maxSingle}" + if (counter.parts > 1) " (${counter.parts})" else "",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+                        }
 
                         Spacer(modifier = Modifier.width(8.dp))
 
-                        // شمارنده پیامک پویا بر اساس طول کاراکتر و صفحات پیامک
-                        val counter = remember(inputText) { calculateSmsCounter(inputText) }
-                        if (inputText.isNotEmpty()) {
-                            Text(
-                                text = "${counter.remaining}/${counter.maxSingle}" + if (counter.parts > 1) " (${counter.parts})" else "",
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(end = 4.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                if (inputText.isNotBlank()) {
-                                    val textToSend = inputText
-                                    inputText = ""
-                                    scope.launch {
-                                        val success = smsRepository.sendMessage(address, textToSend)
-                                        if (success) {
-                                            messages = smsRepository.getMessages(threadId, address, mergedAddresses)
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .background(
+                                    if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    CircleShape
+                                )
+                                .clickable(enabled = inputText.isNotBlank()) {
+                                    if (inputText.isNotBlank()) {
+                                        val textToSend = inputText
+                                        inputText = ""
+                                        scope.launch {
+                                            val success = smsRepository.sendMessage(address, textToSend)
+                                            if (success) {
+                                                messages = smsRepository.getMessages(threadId, address, mergedAddresses)
+                                            }
                                         }
                                     }
-                                }
-                            },
-                            enabled = inputText.isNotBlank(),
-                            modifier = Modifier.background(
-                                if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                RoundedCornerShape(50)
-                            )
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.Send,
                                 contentDescription = "Send",
-                                tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
@@ -312,7 +364,7 @@ fun ChatScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = DateUtils.formatMessageTime(msg.date),
+                                text = DateUtils.formatMessageDetailTime(msg.date, isSolarCalendar),
                                 color = timeColor,
                                 fontSize = 10.sp,
                                 modifier = Modifier.align(if (msg.isSent) Alignment.End else Alignment.Start)

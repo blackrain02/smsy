@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -112,80 +113,100 @@ fun NewMessageScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TextField(
-                            value = inputText,
-                            onValueChange = { inputText = it },
-                            placeholder = { Text("Text message", fontSize = 14.sp) },
+                        Surface(
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(24.dp),
-                            textStyle = LocalTextStyle.current.copy(
-                                textDirection = TextDirection.Content,
-                                fontSize = 14.sp
-                            ),
-                            colors = TextFieldDefaults.colors(
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        )
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                BasicTextField(
+                                    value = inputText,
+                                    onValueChange = { inputText = it },
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 4,
+                                    textStyle = LocalTextStyle.current.copy(
+                                        textDirection = TextDirection.Content,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    decorationBox = { innerTextField ->
+                                        if (inputText.isEmpty()) {
+                                            Text(
+                                                "Text message",
+                                                fontSize = 14.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                )
+
+                                val counter = remember(inputText) { calculateSmsCounter(inputText) }
+                                if (inputText.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "${counter.remaining}/${counter.maxSingle}" + if (counter.parts > 1) " (${counter.parts})" else "",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+                        }
 
                         Spacer(modifier = Modifier.width(8.dp))
 
-                        val counter = remember(inputText) { calculateSmsCounter(inputText) }
-                        if (inputText.isNotEmpty()) {
-                            Text(
-                                text = "${counter.remaining}/${counter.maxSingle}" + if (counter.parts > 1) " (${counter.parts})" else "",
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(end = 4.dp)
-                            )
-                        }
-
                         val canSend = recipients.isNotEmpty() && inputText.isNotBlank() && !isSending
 
-                        IconButton(
-                            onClick = {
-                                if (canSend) {
-                                    isSending = true
-                                    val textToSend = inputText
-                                    inputText = ""
-                                    val targets = recipients.toList()
-                                    scope.launch {
-                                        var allSuccess = true
-                                        for (target in targets) {
-                                            val sent = smsRepository.sendMessage(target.number, textToSend)
-                                            if (!sent) allSuccess = false
-                                        }
-                                        isSending = false
-                                        if (targets.size == 1) {
-                                            val single = targets.first()
-                                            val threadId = smsRepository.getOrCreateThreadId(single.number)
-                                            onNavigateToChat(threadId, single.number, single.name)
-                                        } else {
-                                            Toast.makeText(
-                                                context,
-                                                "Message sent to ${targets.size} recipients",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                            onBack()
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .background(
+                                    if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    CircleShape
+                                )
+                                .clickable(enabled = canSend) {
+                                    if (canSend) {
+                                        isSending = true
+                                        val textToSend = inputText
+                                        inputText = ""
+                                        val targets = recipients.toList()
+                                        scope.launch {
+                                            var allSuccess = true
+                                            for (target in targets) {
+                                                val sent = smsRepository.sendMessage(target.number, textToSend)
+                                                if (!sent) allSuccess = false
+                                            }
+                                            isSending = false
+                                            if (targets.size == 1) {
+                                                val single = targets.first()
+                                                val threadId = smsRepository.getOrCreateThreadId(single.number)
+                                                onNavigateToChat(threadId, single.number, single.name)
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Message sent to ${targets.size} recipients",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                                onBack()
+                                            }
                                         }
                                     }
-                                }
-                            },
-                            enabled = canSend,
-                            modifier = Modifier.background(
-                                if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                RoundedCornerShape(50)
-                            )
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.Send,
                                 contentDescription = "Send",
-                                tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
@@ -253,7 +274,7 @@ fun NewMessageScreen(
                 }
             }
 
-            // فیلد اختصاصی و تمام‌عرض جستجوی مخاطب (با کیبورد متنی استاندارد فارسی و انگلیسی)
+            // فیلد اختصاصی و فشرده جستجوی مخاطب
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.fillMaxWidth()
@@ -261,30 +282,27 @@ fun NewMessageScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 4.dp),
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         Icons.Default.Search,
                         contentDescription = "Search",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    TextField(
+                    BasicTextField(
                         value = recipientQuery,
                         onValueChange = { recipientQuery = it },
-                        placeholder = {
-                            Text(
-                                "Search name or type phone number...",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
+                        textStyle = LocalTextStyle.current.copy(
+                            fontSize = 13.5.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
                         keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Text, // کیبورد متنی کامل برای تایپ نام فارسی و انگلیسی
+                            keyboardType = KeyboardType.Text,
                             imeAction = ImeAction.Done
                         ),
                         keyboardActions = KeyboardActions(
@@ -294,24 +312,28 @@ fun NewMessageScreen(
                                 }
                             }
                         ),
-                        colors = TextFieldDefaults.colors(
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
+                        decorationBox = { innerTextField ->
+                            if (recipientQuery.isEmpty()) {
+                                Text(
+                                    "Search name or type phone number...",
+                                    fontSize = 13.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            innerTextField()
+                        }
                     )
 
                     if (recipientQuery.isNotEmpty()) {
                         IconButton(
                             onClick = { recipientQuery = "" },
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(22.dp)
                         ) {
                             Icon(
                                 Icons.Default.Close,
                                 contentDescription = "Clear",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                         }
                     }
