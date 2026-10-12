@@ -7,12 +7,14 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.ContactsContract
 import android.provider.Telephony
+import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -21,10 +23,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,11 +34,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.binacity.spamguard.data.model.Message
+import com.binacity.spamguard.data.repository.ScheduledMessageRepository
 import com.binacity.spamguard.data.repository.SmsRepository
+import com.binacity.spamguard.data.repository.TemplateRepository
 import com.binacity.spamguard.ui.util.DateUtils
+import com.binacity.spamguard.ui.util.OtpHelper
+import com.binacity.spamguard.ui.util.SimHelper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -88,6 +92,16 @@ fun ChatScreen(
     var messageForAction by remember { mutableStateOf<Message?>(null) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+
+    val activeSims = remember { SimHelper.getActiveSims(context) }
+    var selectedSimIndex by remember { mutableIntStateOf(0) }
+    val currentSim = activeSims.getOrNull(selectedSimIndex)
+
+    val templateRepo = remember { TemplateRepository(context) }
+    val templates by templateRepo.getAllTemplates().collectAsState(initial = emptyList())
+
+    val scheduledRepo = remember { ScheduledMessageRepository(context) }
+    var showScheduleDialog by remember { mutableStateOf(false) }
 
     // بارگذاری اولیه پیام‌ها و علامت‌گذاری به عنوان خوانده‌شده
     LaunchedEffect(threadId, address, mergedAddresses) {
@@ -244,6 +258,36 @@ fun ChatScreen(
                 color = MaterialTheme.colorScheme.surface
             ) {
                 Column {
+                    // ردیف چیپ‌های پاسخ‌های آماده سریع
+                    if (templates.isNotEmpty()) {
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(templates.take(8), key = { it.id }) { tmpl ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.clickable {
+                                        inputText = if (inputText.isBlank()) tmpl.text else "$inputText ${tmpl.text}"
+                                        scope.launch { templateRepo.useTemplate(tmpl.id) }
+                                    }
+                                ) {
+                                    Text(
+                                        text = tmpl.text,
+                                        fontSize = 11.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -295,7 +339,53 @@ fun ChatScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(8.dp))
+                        // دکمه انتخاب سیم‌کارت در گوشی‌های ۲ سیم‌کارت
+                        if (activeSims.size > 1) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                modifier = Modifier.clickable {
+                                    selectedSimIndex = (selectedSimIndex + 1) % activeSims.size
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.SimCard, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        "SIM ${(currentSim?.slotIndex ?: 0) + 1}",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
+                        }
+
+                        // دکمه زمان‌بندی ارسال پیامک
+                        Spacer(modifier = Modifier.width(4.dp))
+                        IconButton(
+                            onClick = {
+                                if (inputText.isNotBlank()) {
+                                    showScheduleDialog = true
+                                } else {
+                                    Toast.makeText(context, "ابتدا متن پیام را وارد کنید", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Schedule,
+                                contentDescription = "Schedule SMS",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
 
                         Box(
                             modifier = Modifier
@@ -309,7 +399,7 @@ fun ChatScreen(
                                         val textToSend = inputText
                                         inputText = ""
                                         scope.launch {
-                                            val success = smsRepository.sendMessage(address, textToSend)
+                                            val success = smsRepository.sendMessage(address, textToSend, currentSim?.subscriptionId)
                                             if (success) {
                                                 messages = smsRepository.getMessages(threadId, address, mergedAddresses)
                                             }
@@ -351,6 +441,7 @@ fun ChatScreen(
                 val bg = if (msg.isSent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                 val textColor = if (msg.isSent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                 val timeColor = if (msg.isSent) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                val otpCode = remember(msg.body) { OtpHelper.extractOtp(msg.body) }
 
                 Box(
                     modifier = Modifier.fillMaxWidth(),
@@ -385,13 +476,91 @@ fun ChatScreen(
                                 lineHeight = 20.sp,
                                 style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = DateUtils.formatMessageDetailTime(msg.date, isSolarCalendar),
-                                color = timeColor,
-                                fontSize = 10.sp,
+
+                            // کارت هوشمند استخراج و کپی رمز یک‌بارمصرف (OTP) با قابلیت حذف تکی
+                            if (otpCode != null) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (msg.isSent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                    tonalElevation = 2.dp,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Default.Key,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "کد: $otpCode",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            TextButton(
+                                                onClick = {
+                                                    clipboardManager.setText(AnnotatedString(otpCode))
+                                                    Toast.makeText(context, "کد تایید کپی شد", Toast.LENGTH_SHORT).show()
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("کپی", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            TextButton(
+                                                onClick = {
+                                                    scope.launch {
+                                                        smsRepository.deleteMessage(msg.id)
+                                                        messages = smsRepository.getMessages(threadId, address, mergedAddresses)
+                                                        Toast.makeText(context, "پیامک حاوی کد تایید حذف شد", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("حذف پیام", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.align(if (msg.isSent) Alignment.End else Alignment.Start)
-                            )
+                            ) {
+                                if (activeSims.size > 1 && msg.subId != null) {
+                                    Text(
+                                        text = "SIM ${if (msg.subId == activeSims.firstOrNull()?.subscriptionId) "1" else "2"}",
+                                        fontSize = 9.sp,
+                                        color = timeColor,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                Text(
+                                    text = DateUtils.formatMessageDetailTime(msg.date, isSolarCalendar),
+                                    color = timeColor,
+                                    fontSize = 10.sp
+                                )
+                                if (msg.isSent) {
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    when (msg.deliveryStatus) {
+                                        2 -> Text("✓✓", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                                        3 -> Text("!", fontSize = 10.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                                        else -> Text("✓", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f))
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -404,7 +573,7 @@ fun ChatScreen(
         val target = messageForAction!!
         AlertDialog(
             onDismissRequest = { messageForAction = null },
-            title = { Text("Message Options", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            title = { Text("گزینه‌های پیام", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = {
                 Column {
                     TextButton(
@@ -417,7 +586,7 @@ fun ChatScreen(
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.width(12.dp))
-                            Text("Copy text", color = MaterialTheme.colorScheme.onSurface)
+                            Text("کپی متن پیام", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
@@ -434,7 +603,7 @@ fun ChatScreen(
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                             Spacer(modifier = Modifier.width(12.dp))
-                            Text("Delete message", color = MaterialTheme.colorScheme.error)
+                            Text("حذف این پیام", color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -442,7 +611,65 @@ fun ChatScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { messageForAction = null }) {
-                    Text("Cancel")
+                    Text("انصراف")
+                }
+            }
+        )
+    }
+
+    // دیالوگ ارسال زمان‌بندی‌شده
+    if (showScheduleDialog) {
+        var selectedDelayMinutes by remember { mutableIntStateOf(15) }
+        AlertDialog(
+            onDismissRequest = { showScheduleDialog = false },
+            title = { Text("ارسال زمان‌بندی‌شده", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+            text = {
+                Column {
+                    Text("زمان ارسال پیامک را انتخاب کنید:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    listOf(
+                        15 to "۱۵ دقیقه بعد",
+                        60 to "۱ ساعت بعد",
+                        180 to "۳ ساعت بعد",
+                        720 to "۱۲ ساعت بعد",
+                        1440 to "فردا همین ساعت"
+                    ).forEach { (min, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedDelayMinutes = min }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selectedDelayMinutes == min,
+                                onClick = { selectedDelayMinutes = min }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(label, fontSize = 13.5.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val scheduleTime = System.currentTimeMillis() + (selectedDelayMinutes * 60 * 1000L)
+                        val textToSend = inputText
+                        inputText = ""
+                        showScheduleDialog = false
+                        scope.launch {
+                            scheduledRepo.scheduleMessage(address, textToSend, scheduleTime, currentSim?.subscriptionId)
+                            Toast.makeText(context, "پیامک برای ارسال زمان‌بندی شد", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                ) {
+                    Text("زمان‌بندی")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showScheduleDialog = false }) {
+                    Text("انصراف")
                 }
             }
         )

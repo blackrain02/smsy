@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 
 private val LightColorScheme = lightColorScheme(
@@ -31,17 +32,25 @@ private val DarkColorScheme = darkColorScheme(
 @Composable
 fun SmsyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+    val themeMode = remember { ThemePreferences.getThemeMode(context) }
+    val palette = remember { ThemePreferences.getBubblePalette(context) }
+
+    val isDark = when (themeMode) {
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+        ThemeMode.SYSTEM -> darkTheme
+        else -> darkTheme
     }
+
+    val baseScheme = if (isDark) DarkColorScheme else LightColorScheme
+    val colorScheme = baseScheme.copy(
+        primary = palette.primaryColor,
+        onPrimary = palette.onPrimaryColor
+    )
 
     MaterialTheme(
         colorScheme = colorScheme,

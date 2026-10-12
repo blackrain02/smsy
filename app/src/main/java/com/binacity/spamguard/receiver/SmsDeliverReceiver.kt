@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import com.binacity.spamguard.ai.SpamClassifier
+import com.binacity.spamguard.data.repository.BlocklistRepository
 import com.binacity.spamguard.data.repository.SmsRepository
 import com.binacity.spamguard.data.repository.SpamRepository
 import com.binacity.spamguard.notification.NotificationHelper
@@ -31,11 +32,19 @@ class SmsDeliverReceiver : BroadcastReceiver() {
             try {
                 val spamRepo = SpamRepository(context)
                 val smsRepo = SmsRepository(context)
+                val blocklistRepo = BlocklistRepository(context)
 
-                // گام ۰: مخاطبین دفترچه تلفن و لیست سفید کاربر هرگز اسپم نیستند
+                // گام ۰: اگر شماره در فهرست سیاه قطعی (Blocklist) باشد، مستقیماً به قرنطینه می‌رود
+                if (blocklistRepo.isBlocked(sender)) {
+                    spamRepo.quarantine(sender, fullBody, 1.0f)
+                    return@launch
+                }
+
+                // گام ۱: مخاطبین دفترچه تلفن و لیست سفید کاربر هرگز اسپم نیستند
                 if (smsRepo.isContact(sender) || spamRepo.isUserWhitelisted(sender)) {
-                    smsRepo.saveToInbox(sender, fullBody, timestamp)
-                    NotificationHelper.showMessageNotification(context, sender, fullBody)
+                    val uri = smsRepo.saveToInbox(sender, fullBody, timestamp)
+                    val threadId = smsRepo.getOrCreateThreadId(sender)
+                    NotificationHelper.showMessageNotification(context, sender, fullBody, threadId)
                     return@launch
                 }
 
@@ -48,8 +57,9 @@ class SmsDeliverReceiver : BroadcastReceiver() {
                     spamRepo.quarantine(sender, fullBody, result.spamProbability)
                 } else {
                     // پیامک عادی/بانکی: ذخیره در پیامک‌های رسمی گوشی و ارسال اعلان
-                    smsRepo.saveToInbox(sender, fullBody, timestamp)
-                    NotificationHelper.showMessageNotification(context, sender, fullBody)
+                    val uri = smsRepo.saveToInbox(sender, fullBody, timestamp)
+                    val threadId = smsRepo.getOrCreateThreadId(sender)
+                    NotificationHelper.showMessageNotification(context, sender, fullBody, threadId)
                 }
             } finally {
                 pendingResult.finish()

@@ -1,21 +1,64 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    
-    <!-- بدنه حباب پیامک مدرن -->
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M38,32h32c6.63,0 12,5.37 12,12v16c0,6.63 -5.37,12 -12,12H48l-10,9v-9c-5.52,0 -10,-4.48 -10,-10V44c0,-6.63 5.37,-12 10,-12z" />
 
-    <!-- نشانگر سپر هوش مصنوعی و امنیت داخلی -->
+    <!-- Outer Glow Capsule / Bubble -->
     <path
-        android:fillColor="#FF0284C7"
-        android:pathData="M54,42l9,3.5c0,6.5 -4.5,12.5 -9,14.5c-4.5,-2 -9,-8 -9,-14.5z" />
+        android:pathData="M34,30h40c7.73,0 14,6.27 14,14v18c0,7.73 -6.27,14 -14,14H50l-12,9v-9c-6.63,0 -12,-5.37 -12,-12V44c0,-7.73 6.27,-14 14,-14z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="26"
+                android:startY="30"
+                android:endX="88"
+                android:endY="83"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF38BDF8" />
+                <item android:offset="0.5" android:color="#FF6366F1" />
+                <item android:offset="1.0" android:color="#FF818CF8" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- ستاره درخشش / هوش مصنوعی در مرکز سپر -->
+    <!-- Inner Core Glass Cutout -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M54,46c0.5,2 1.5,3 3.5,3.5c-2,0.5 -3,1.5 -3.5,3.5c-0.5,-2 -1.5,-3 -3.5,-3.5c2,-0.5 3,-1.5 3.5,-3.5z" />
+        android:fillColor="#FF0F172A"
+        android:pathData="M36,33h36c6.07,0 11,4.93 11,11v16c0,6.07 -4.93,11 -11,11H50.5l-9.5,7.1v-7.1c-5.52,0 -10,-4.48 -10,-10V44c0,-6.07 4.93,-11 11,-11z" />
+
+    <!-- AI Neural Starburst in Center -->
+    <path
+        android:pathData="M54,40c0.8,4.5 3.5,7.2 8,8c-4.5,0.8 -7.2,3.5 -8,8c-0.8,-4.5 -3.5,-7.2 -8,-8c4.5,-0.8 7.2,-3.5 8,-8z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="46"
+                android:startY="40"
+                android:endX="62"
+                android:endY="56"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="0.6" android:color="#FF38BDF8" />
+                <item android:offset="1.0" android:color="#FF818CF8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Satellite AI Spark 1 (top right) -->
+    <path
+        android:fillColor="#FF38BDF8"
+        android:pathData="M66,38c0.4,2 1.5,3.1 3.5,3.5c-2,0.4 -3.1,1.5 -3.5,3.5c-0.4,-2 -1.5,-3.1 -3.5,-3.5c2,-0.4 3.1,-1.5 3.5,-3.5z" />
+
+    <!-- Satellite AI Spark 2 (bottom left) -->
+    <path
+        android:fillColor="#FFA5B4FC"
+        android:pathData="M42,56c0.3,1.5 1.2,2.4 2.7,2.7c-1.5,0.3 -2.4,1.2 -2.7,2.7c-0.3,-1.5 -1.2,-2.4 -2.7,-2.7c1.5,-0.3 2.4,-1.2 2.7,-2.7z" />
+
+    <!-- Neural connection dots -->
+    <path
+        android:fillColor="#FF38BDF8"
+        android:pathData="M44,43m-1.5,0a1.5,1.5 0 1,0 3,0a1.5,1.5 0 1,0 -3,0" />
+    <path
+        android:fillColor="#FF818CF8"
+        android:pathData="M64,55m-1.5,0a1.5,1.5 0 1,0 3,0a1.5,1.5 0 1,0 -3,0" />
 </vector>

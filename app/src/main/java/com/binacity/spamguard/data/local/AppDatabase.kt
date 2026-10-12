@@ -5,10 +5,23 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [SpamMessageEntity::class, UserWhitelistEntity::class], version = 1, exportSchema = false)
+@Database(
+    entities = [
+        SpamMessageEntity::class,
+        UserWhitelistEntity::class,
+        BlocklistEntity::class,
+        ScheduledMessageEntity::class,
+        QuickTemplateEntity::class
+    ],
+    version = 2,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun spamMessageDao(): SpamMessageDao
     abstract fun userWhitelistDao(): UserWhitelistDao
+    abstract fun blocklistDao(): BlocklistDao
+    abstract fun scheduledMessageDao(): ScheduledMessageDao
+    abstract fun quickTemplateDao(): QuickTemplateDao
 
     companion object {
         @Volatile
@@ -20,7 +33,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "spamguard_quarantine.db"
-                ).build()
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }

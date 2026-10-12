@@ -12,5 +12,7 @@ data class Conversation(
     val unreadCount: Int,
     val isPinned: Boolean = false,
     val mergedAddresses: Set<String> = emptySet(),
-    val aliasId: String? = null
+    val aliasId: String? = null,
+    val subId: Int? = null,
+    val isBlocked: Boolean = false
 )

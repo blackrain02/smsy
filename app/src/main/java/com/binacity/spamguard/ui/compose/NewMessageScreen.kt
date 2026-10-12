@@ -33,11 +33,13 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.SimCard
 import com.binacity.spamguard.data.model.ContactItem
 import com.binacity.spamguard.data.model.Message
 import com.binacity.spamguard.data.repository.SmsRepository
 import com.binacity.spamguard.ui.chat.calculateSmsCounter
 import com.binacity.spamguard.ui.util.DateUtils
+import com.binacity.spamguard.ui.util.SimHelper
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -53,6 +55,10 @@ fun NewMessageScreen(
     var inputText by remember { mutableStateOf("") }
     var isSending by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    val activeSims = remember { SimHelper.getActiveSims(context) }
+    var selectedSimIndex by remember { mutableIntStateOf(0) }
+    val currentSim = activeSims.getOrNull(selectedSimIndex)
 
     // بارگذاری بلادرنگ مخاطبین بر اساس متن جستجو (حروف فارسی، انگلیسی و اعداد)
     val suggestedContacts by produceState(initialValue = emptyList<ContactItem>(), key1 = recipientQuery) {
@@ -163,6 +169,31 @@ fun NewMessageScreen(
 
                         Spacer(modifier = Modifier.width(8.dp))
 
+                        if (activeSims.size > 1) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                modifier = Modifier.clickable {
+                                    selectedSimIndex = (selectedSimIndex + 1) % activeSims.size
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.SimCard, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        "SIM ${(currentSim?.slotIndex ?: 0) + 1}",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+
                         val canSend = recipients.isNotEmpty() && inputText.isNotBlank() && !isSending
 
                         Box(
@@ -181,7 +212,7 @@ fun NewMessageScreen(
                                         scope.launch {
                                             var allSuccess = true
                                             for (target in targets) {
-                                                val sent = smsRepository.sendMessage(target.number, textToSend)
+                                                val sent = smsRepository.sendMessage(target.number, textToSend, currentSim?.subscriptionId)
                                                 if (!sent) allSuccess = false
                                             }
                                             isSending = false

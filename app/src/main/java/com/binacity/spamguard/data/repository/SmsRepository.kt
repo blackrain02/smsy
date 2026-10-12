@@ -1,19 +1,24 @@
 package com.binacity.spamguard.data.repository
 
 import android.Manifest
+import android.app.PendingIntent
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.ContactsContract
 import android.provider.Telephony
 import android.telephony.SmsManager
+import android.telephony.SubscriptionManager
 import androidx.core.content.ContextCompat
 import com.binacity.spamguard.ai.SpamClassifier
 import com.binacity.spamguard.data.model.ContactItem
 import com.binacity.spamguard.data.model.Conversation
 import com.binacity.spamguard.data.model.Message
+import com.binacity.spamguard.receiver.SmsDeliveryReceiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,10 +36,12 @@ class SmsRepository(private val context: Context) {
     private val pinnedPrefs = context.getSharedPreferences("smsy_pinned_threads", Context.MODE_PRIVATE)
     private val readThreadsPrefs = context.getSharedPreferences("smsy_read_threads", Context.MODE_PRIVATE)
     private val aliasRepo = SenderAliasRepository(context)
+    private val blocklistRepo = BlocklistRepository(context)
     private val recentlyReadKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val repoScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     val aliasRepository: SenderAliasRepository get() = aliasRepo
+    val blocklistRepository: BlocklistRepository get() = blocklistRepo
 
     fun markKeyAsReadInMemory(address: String, mergedAddresses: Set<String> = emptySet(), aliasId: String? = null) {
         val keys = mutableSetOf<String>()
@@ -269,6 +276,7 @@ class SmsRepository(private val context: Context) {
         val contactsMap = getContactCache()
         val pinnedKeys = getPinnedKeys()
         val allAliases = aliasRepo.getAllAliases()
+        val blockedSenders = blocklistRepo.getBlockedSet()
 
         // ایندکس‌گذاری سریع نام‌های مستعار و گروه‌ها در O(1) به جای جستجوی خطی تکراری
         val exactAliasMap = HashMap<String, SenderGroupAlias>()
@@ -290,7 +298,8 @@ class SmsRepository(private val context: Context) {
                 Telephony.Sms.ADDRESS,
                 Telephony.Sms.BODY,
                 Telephony.Sms.DATE,
-                Telephony.Sms.READ
+                Telephony.Sms.READ,
+                Telephony.Sms.SUBSCRIPTION_ID
             )
 
             val cursor = context.contentResolver.query(uri, projection, null, null, "date DESC")
@@ -300,6 +309,7 @@ class SmsRepository(private val context: Context) {
                 val bodyCol = it.getColumnIndex(Telephony.Sms.BODY)
                 val dateCol = it.getColumnIndex(Telephony.Sms.DATE)
                 val readCol = it.getColumnIndex(Telephony.Sms.READ)
+                val subIdCol = it.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
 
                 if (threadIdCol == -1 || addressCol == -1) return@use
 
@@ -334,6 +344,14 @@ class SmsRepository(private val context: Context) {
                         val date = if (dateCol != -1) it.getLong(dateCol) else System.currentTimeMillis()
                         val contactName = matchedAlias?.displayName ?: contactsMap[addressNorm]
                         val isPinned = pinnedKeys.contains(convKey) || pinnedKeys.contains(getConversationKey(address))
+                        val subId = if (subIdCol != -1 && !it.isNull(subIdCol)) it.getInt(subIdCol) else null
+                        val isBlocked = blockedSenders.contains(addressLower) ||
+                            (addressNorm.isNotEmpty() && blockedSenders.contains(addressNorm)) ||
+                            (matchedAlias?.numbers?.any { num ->
+                                val nLower = num.trim().lowercase()
+                                val nNorm = normalizePhoneNumber(num)
+                                blockedSenders.contains(nLower) || (nNorm.isNotEmpty() && blockedSenders.contains(nNorm))
+                            } == true)
 
                         list.add(
                             Conversation(
@@ -345,7 +363,9 @@ class SmsRepository(private val context: Context) {
                                 unreadCount = 0,
                                 isPinned = isPinned,
                                 mergedAddresses = matchedAlias?.numbers ?: emptySet(),
-                                aliasId = matchedAlias?.id
+                                aliasId = matchedAlias?.id,
+                                subId = subId,
+                                isBlocked = isBlocked
                             )
                         )
                     }
@@ -634,6 +654,8 @@ class SmsRepository(private val context: Context) {
                 val dateCol = it.getColumnIndex(Telephony.Sms.DATE)
                 val typeCol = it.getColumnIndex(Telephony.Sms.TYPE)
                 val readCol = it.getColumnIndex(Telephony.Sms.READ)
+                val subIdCol = it.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
+                val statusCol = it.getColumnIndex(Telephony.Sms.STATUS)
 
                 while (it.moveToNext()) {
                     val id = if (idCol != -1) it.getLong(idCol) else 0L
@@ -648,6 +670,15 @@ class SmsRepository(private val context: Context) {
                     val msgThreadId = if (threadCol != -1) it.getLong(threadCol) else threadId
                     val type = if (typeCol != -1) it.getInt(typeCol) else Telephony.Sms.MESSAGE_TYPE_INBOX
                     val isRead = if (readCol != -1) it.getInt(readCol) == 1 else true
+                    val subId = if (subIdCol != -1 && !it.isNull(subIdCol)) it.getInt(subIdCol) else null
+                    val rawStatus = if (statusCol != -1 && !it.isNull(statusCol)) it.getInt(statusCol) else -1
+                    val isSent = (type == Telephony.Sms.MESSAGE_TYPE_SENT)
+                    val deliveryStatus = when {
+                        !isSent -> 0
+                        rawStatus == Telephony.Sms.STATUS_COMPLETE -> 2
+                        rawStatus == Telephony.Sms.STATUS_FAILED -> 3
+                        else -> 1
+                    }
 
                     list.add(
                         Message(
@@ -656,8 +687,10 @@ class SmsRepository(private val context: Context) {
                             address = msgAddress,
                             body = body,
                             date = date,
-                            isSent = (type == Telephony.Sms.MESSAGE_TYPE_SENT),
-                            isRead = isRead
+                            isSent = isSent,
+                            isRead = isRead,
+                            subId = subId,
+                            deliveryStatus = deliveryStatus
                         )
                     )
                 }
@@ -669,21 +702,12 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
-     * ارسال پیامک و ذخیره خودکار در Sent Messages
+     * ارسال پیامک و ذخیره خودکار در Sent Messages با پشتیبانی ۲ سیم‌کارت و گزارش تحویل
      */
-    suspend fun sendMessage(address: String, body: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun sendMessage(address: String, body: String, subId: Int? = null): Boolean = withContext(Dispatchers.IO) {
         try {
-            val smsManager: SmsManager = context.getSystemService(SmsManager::class.java)
-            val parts = smsManager.divideMessage(body)
-            if (parts.size > 1) {
-                smsManager.sendMultipartTextMessage(address, null, parts, null, null)
-            } else {
-                smsManager.sendTextMessage(address, null, body, null, null)
-            }
-
             val threadId = getOrCreateThreadId(address)
 
-            // ذخیره در جدول پیام‌های ارسالی با انتساب threadId
             val values = ContentValues().apply {
                 if (threadId > 0) {
                     put(Telephony.Sms.THREAD_ID, threadId)
@@ -694,12 +718,79 @@ class SmsRepository(private val context: Context) {
                 put(Telephony.Sms.READ, 1)
                 put(Telephony.Sms.SEEN, 1)
                 put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_SENT)
+                put(Telephony.Sms.STATUS, Telephony.Sms.STATUS_PENDING)
+                if (subId != null && subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                    put(Telephony.Sms.SUBSCRIPTION_ID, subId)
+                }
             }
-            context.contentResolver.insert(Telephony.Sms.Sent.CONTENT_URI, values)
+            val insertedUri = context.contentResolver.insert(Telephony.Sms.Sent.CONTENT_URI, values)
+            val msgId = insertedUri?.lastPathSegment?.toLongOrNull() ?: 0L
+
+            val deliveryIntent = if (msgId > 0) {
+                PendingIntent.getBroadcast(
+                    context,
+                    msgId.toInt(),
+                    Intent(context, SmsDeliveryReceiver::class.java).apply {
+                        action = SmsDeliveryReceiver.ACTION_SMS_DELIVERED
+                        putExtra(SmsDeliveryReceiver.EXTRA_MESSAGE_ID, msgId)
+                    },
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else null
+
+            val smsManager = if (subId != null && subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    context.getSystemService(SmsManager::class.java).createForSubscriptionId(subId)
+                } else {
+                    @Suppress("DEPRECATION")
+                    SmsManager.getSmsManagerForSubscriptionId(subId)
+                }
+            } else {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    context.getSystemService(SmsManager::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    SmsManager.getDefault()
+                }
+            }
+
+            val parts = smsManager.divideMessage(body)
+            if (parts.size > 1) {
+                val deliveryIntents = if (deliveryIntent != null) {
+                    ArrayList<PendingIntent>().apply {
+                        for (i in 0 until parts.size) {
+                            add(deliveryIntent)
+                        }
+                    }
+                } else null
+                smsManager.sendMultipartTextMessage(address, null, parts, null, deliveryIntents)
+            } else {
+                smsManager.sendTextMessage(address, null, body, null, deliveryIntent)
+            }
+
             true
         } catch (e: Throwable) {
             e.printStackTrace()
             false
+        }
+    }
+
+    fun updateMessageDeliveryStatus(messageId: Long, status: Int) {
+        repoScope.launch {
+            try {
+                val uri = ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, messageId)
+                val values = ContentValues().apply {
+                    val dbStatus = when (status) {
+                        2 -> Telephony.Sms.STATUS_COMPLETE
+                        3 -> Telephony.Sms.STATUS_FAILED
+                        else -> Telephony.Sms.STATUS_PENDING
+                    }
+                    put(Telephony.Sms.STATUS, dbStatus)
+                }
+                context.contentResolver.update(uri, values, null, null)
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            }
         }
     }
 

@@ -10,14 +10,20 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.binacity.spamguard.data.repository.SmsRepository
 import com.binacity.spamguard.data.repository.SpamRepository
@@ -74,29 +80,85 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Scaffold(
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
                     bottomBar = {
                         if (currentScreen !is Screen.Chat && currentScreen !is Screen.NewMessage) {
-                            NavigationBar {
-                                NavigationBarItem(
-                                    selected = currentScreen is Screen.Conversations,
-                                    onClick = { currentScreen = Screen.Conversations },
-                                    icon = { Icon(Icons.Default.Email, contentDescription = "Inbox") },
-                                    label = { Text("Inbox") }
-                                )
-                                NavigationBarItem(
-                                    selected = currentScreen is Screen.Quarantine,
-                                    onClick = { currentScreen = Screen.Quarantine },
-                                    icon = {
-                                        BadgedBox(badge = {
-                                            if (unreadSpamCount > 0) {
-                                                Badge { Text(unreadSpamCount.toString()) }
+                            Surface(
+                                tonalElevation = 3.dp,
+                                shadowElevation = 8.dp,
+                                color = MaterialTheme.colorScheme.surface
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .navigationBarsPadding()
+                                        .height(54.dp)
+                                        .padding(horizontal = 24.dp),
+                                    horizontalArrangement = Arrangement.SpaceAround,
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    val isInbox = currentScreen is Screen.Conversations
+                                    Surface(
+                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                        color = if (isInbox) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent,
+                                        modifier = Modifier.clickable { currentScreen = Screen.Conversations }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Email,
+                                                contentDescription = "Inbox",
+                                                tint = if (isInbox) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(19.dp)
+                                            )
+                                            if (isInbox) {
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    "صندوق پیام",
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                )
                                             }
-                                        }) {
-                                            Icon(Icons.Default.Shield, contentDescription = "Quarantine")
                                         }
-                                    },
-                                    label = { Text("Quarantine") }
-                                )
+                                    }
+
+                                    val isQuarantine = currentScreen is Screen.Quarantine
+                                    Surface(
+                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                        color = if (isQuarantine) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent,
+                                        modifier = Modifier.clickable { currentScreen = Screen.Quarantine }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                        ) {
+                                            BadgedBox(badge = {
+                                                if (unreadSpamCount > 0) {
+                                                    Badge { Text(unreadSpamCount.toString(), fontSize = 10.sp) }
+                                                }
+                                            }) {
+                                                Icon(
+                                                    Icons.Default.Shield,
+                                                    contentDescription = "Quarantine",
+                                                    tint = if (isQuarantine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(19.dp)
+                                                )
+                                            }
+                                            if (isQuarantine) {
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    "قرنطینه",
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -104,7 +166,7 @@ class MainActivity : ComponentActivity() {
                     Surface(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(innerPadding),
+                            .padding(bottom = innerPadding.calculateBottomPadding()),
                         color = MaterialTheme.colorScheme.background
                     ) {
                         AnimatedContent(
