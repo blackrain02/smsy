@@ -61,10 +61,14 @@ fun PinDialog(
     val focusRequester = remember { FocusRequester() }
 
     val hasBiometric = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val bm = context.getSystemService(BiometricManager::class.java)
-            bm?.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
-        } else false
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val bm = context.getSystemService(BiometricManager::class.java)
+                bm?.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
+            } else false
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     var cancellationSignal by remember { mutableStateOf<CancellationSignal?>(null) }
