@@ -75,8 +75,13 @@ object NotificationHelper {
      */
     fun cancelForSender(context: Context, sender: String) {
         try {
+            val aliasRepo = SenderAliasRepository(context)
+            val alias = aliasRepo.getAliasForAddress(sender)
+            val groupKey = alias?.id ?: sender
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.cancel(getNotificationId(groupKey))
             manager.cancel(getNotificationId(sender))
+            recentMessagesPerSender.remove(groupKey)
             recentMessagesPerSender.remove(sender)
             if (recentMessagesPerSender.isEmpty()) {
                 manager.cancel(GROUP_SUMMARY_ID)
@@ -97,6 +102,7 @@ object NotificationHelper {
         val lockKey = securityRepo.getLockKey(sender, alias?.id)
         val isLocked = securityRepo.isConversationLocked(lockKey)
 
+        val groupKey = alias?.id ?: sender
         val displaySender = alias?.displayName ?: sender
         val displayBody = if (isLocked) {
             if (isFa) "پیام جدید دریافت شد (قفل شده)" else "New message received (Locked)"
@@ -105,7 +111,7 @@ object NotificationHelper {
         }
 
         // ۲. تجمیع پیامک‌های این سرشماره جهت استک شدن در MessagingStyle
-        val senderList = recentMessagesPerSender.getOrPut(sender) { mutableListOf() }
+        val senderList = recentMessagesPerSender.getOrPut(groupKey) { mutableListOf() }
         synchronized(senderList) {
             senderList.add(displayBody to System.currentTimeMillis())
             if (senderList.size > 20) {
@@ -122,7 +128,7 @@ object NotificationHelper {
                 putExtra("thread_id", threadId)
             }
         }
-        val notificationId = getNotificationId(sender)
+        val notificationId = getNotificationId(groupKey)
         val pendingIntent = PendingIntent.getActivity(
             context,
             notificationId,
