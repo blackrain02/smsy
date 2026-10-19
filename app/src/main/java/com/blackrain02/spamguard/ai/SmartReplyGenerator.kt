@@ -15,21 +15,27 @@ object SmartReplyGenerator {
 
         val text = messageText.trim()
         val lower = text.lowercase()
-        val isEnglishText = text.any { it in 'a'..'z' || it in 'A'..'Z' } && !text.any { it in '\u0600'..'\u06FF' }
-        val usePersian = isFa && !isEnglishText
+        val hasPersianLetters = text.any { it in '\u0600'..'\u06FF' }
+        val isStrictlyEnglish = text.any { it in 'a'..'z' || it in 'A'..'Z' } && !hasPersianLetters
+        val usePersian = hasPersianLetters || isFa || !isStrictlyEnglish
 
         // ۱. سلام و احوال‌پرسی
         if (lower.contains("سلام") || lower.contains("درود") || lower.contains("صبح بخیر") ||
-            lower.contains("عصر بخیر") || lower.contains("شب بخیر") || lower.contains("چطوری") || lower.contains("خوبی")
+            lower.contains("عصر بخیر") || lower.contains("شب بخیر") || lower.contains("چطوری") || lower.contains("خوبی") ||
+            lower.contains("سلام وقت بخیر") || lower.contains("ارادت")
         ) {
             return if (usePersian) {
-                listOf("سلام، وقت بخیر", "سلام ممنون، شما خوبی؟", "درود، ارادتمندم")
+                listOf("سلام، وقت بخیر", "سلام، ممنون شما چطورید؟", "درود، ارادتمندم")
             } else {
                 listOf("Hello, doing well!", "Hi there!", "Good day!")
             }
         }
         if (lower.contains("hello") || lower.contains("hi ") || lower.startsWith("hi") || lower.contains("how are you")) {
-            return listOf("Hello, doing well!", "Hi! All good, thanks", "Hey there!")
+            return if (usePersian) {
+                listOf("سلام، ممنون، شما خوبی؟", "درود، وقت بخیر")
+            } else {
+                listOf("Hello, doing well!", "Hi! All good, thanks", "Hey there!")
+            }
         }
 
         // ۲. موقعیت مکانی و رسیدن

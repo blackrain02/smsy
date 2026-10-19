@@ -124,6 +124,32 @@ class AppStrings(val lang: AppLanguage) {
     val pinRemovedSuccess = if (isFa) "رمز عبور و قفل‌ها حذف شدند" else "PIN and locks removed"
     val conversationLockedSuccess = if (isFa) "گفتگو با موفقیت قفل شد" else "Conversation locked successfully"
     val conversationUnlockedSuccess = if (isFa) "قفل گفتگو باز شد" else "Conversation unlocked"
+
+    // Deep Search & Avatars
+    val searchResultsMessages = if (isFa) "پیام‌های یافت‌شده در متن" else "Messages Found"
+    val searchConversationsHeader = if (isFa) "گفتگوها" else "Conversations"
+    val inChatSearch = if (isFa) "جستجو در این گفتگو..." else "Search in this chat..."
+
+    // Security & Privacy Extensions
+    val autoLockTimeout = if (isFa) "زمان قفل خودکار نشست" else "Auto-Lock Timeout"
+    val autoLockImmediate = if (isFa) "بلافاصله هنگام خروج" else "Immediately on Exit"
+    val autoLock1Min = if (isFa) "۱ دقیقه پس از عدم فعالیت" else "1 Minute Inactivity"
+    val autoLock5Min = if (isFa) "۵ دقیقه پس از عدم فعالیت" else "5 Minutes Inactivity"
+    val flagSecureTitle = if (isFa) "محافظت در برنامه‌های اخیر (ضد اسکرین‌شات)" else "App Switcher & Screenshot Shield"
+    val flagSecureSubtitle = if (isFa) "جلوگیری از پیش‌نمایش در منوی برنامه‌ها و مسدودسازی اسکرین‌شات (FLAG_SECURE)" else "Prevents previews in recent apps tray & blocks screenshots"
+    val biometricUnlock = if (isFa) "بازگشایی با اثر انگشت (بیومتریک)" else "Fingerprint Unlock (Biometric)"
+    val biometricSubtitle = if (isFa) "احراز هویت سریع با سنسور اثر انگشت در کنار پین" else "Quick authentication with fingerprint sensor alongside PIN"
+    val decoyPin = if (isFa) "رمز عبور اضطراری (پین فریب / Decoy)" else "Decoy / Duress PIN"
+    val decoyPinSubtitle = if (isFa) "نمایش موجودی صفر و مخفی‌سازی داده‌ها در شرایط اجبار" else "Hides locked chats & shows zero balance under coercion"
+    val setDecoyPin = if (isFa) "تعیین پین فریب اضطراری" else "Set Decoy PIN"
+    val removeDecoyPin = if (isFa) "حذف پین فریب" else "Remove Decoy PIN"
+    val decoyPinSetSuccess = if (isFa) "پین اضطراری با موفقیت ذخیره شد" else "Decoy PIN set successfully"
+    val decoyPinRemoved = if (isFa) "پین اضطراری حذف شد" else "Decoy PIN removed"
+    val biometricPromptTitle = if (isFa) "تأیید هویت Smsy" else "Smsy Authentication"
+    val biometricPromptSubtitle = if (isFa) "لطفاً اثر انگشت خود را تأیید کنید" else "Please confirm your fingerprint"
+    val usePinInstead = if (isFa) "ورود با رمز عبور" else "Use PIN"
+    val encryptedBackupSuccess = if (isFa) "پشتیبان با رمزنگاری پیشرفته AES-GCM صادر شد" else "Backup exported with AES-GCM encryption"
+    val enterPinToDecrypt = if (isFa) "فایل پشتیبان رمزنگاری شده است؛ ابتدا رمز را وارد کنید" else "Backup is encrypted; enter PIN to restore"
 }
 
 val LocalAppStrings = staticCompositionLocalOf { AppStrings(AppLanguage.EN) }

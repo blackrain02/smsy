@@ -34,24 +34,30 @@ fun FinanceScreen(
     val strings = LocalAppStrings.current
     val scope = rememberCoroutineScope()
     val isSolarCalendar = remember { DateUtils.isSolarCalendar(context) }
+    val securityRepo = remember { com.blackrain02.spamguard.data.repository.SecurityRepository(context) }
+    val isDecoy = securityRepo.isDecoySession
 
     val allTransactions by bankRepo.getAllTransactions().collectAsState(initial = emptyList())
     var selectedFilter by remember { mutableStateOf("ALL") }
     var isScanning by remember { mutableStateOf(false) }
 
-    val filteredTransactions = remember(allTransactions, selectedFilter) {
+    val activeTransactions = remember(allTransactions, isDecoy) {
+        if (isDecoy) emptyList() else allTransactions
+    }
+
+    val filteredTransactions = remember(activeTransactions, selectedFilter) {
         when (selectedFilter) {
-            "DEPOSIT" -> allTransactions.filter { it.type == "DEPOSIT" }
-            "WITHDRAWAL" -> allTransactions.filter { it.type == "WITHDRAWAL" }
-            else -> allTransactions
+            "DEPOSIT" -> activeTransactions.filter { it.type == "DEPOSIT" }
+            "WITHDRAWAL" -> activeTransactions.filter { it.type == "WITHDRAWAL" }
+            else -> activeTransactions
         }
     }
 
-    val totalDeposits = remember(allTransactions) {
-        allTransactions.filter { it.type == "DEPOSIT" }.sumOf { it.amount }
+    val totalDeposits = remember(activeTransactions) {
+        activeTransactions.filter { it.type == "DEPOSIT" }.sumOf { it.amount }
     }
-    val totalWithdrawals = remember(allTransactions) {
-        allTransactions.filter { it.type == "WITHDRAWAL" }.sumOf { it.amount }
+    val totalWithdrawals = remember(activeTransactions) {
+        activeTransactions.filter { it.type == "WITHDRAWAL" }.sumOf { it.amount }
     }
     val netBalance = totalDeposits - totalWithdrawals
 

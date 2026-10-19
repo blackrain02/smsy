@@ -13,6 +13,7 @@ import com.blackrain02.spamguard.ai.SmartEventExtractor
 import com.blackrain02.spamguard.ai.SmartReplyGenerator
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -87,12 +88,16 @@ fun ChatScreen(
     smsRepository: SmsRepository,
     onBack: () -> Unit,
     mergedAddresses: Set<String> = emptySet(),
-    initialText: String = ""
+    initialText: String = "",
+    highlightMessageId: Long? = null
 ) {
     val context = LocalContext.current
     val isSolarCalendar = remember { DateUtils.isSolarCalendar(context) }
     val clipboardManager = LocalClipboardManager.current
     var messages by remember { mutableStateOf<List<Message>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var targetHighlightedId by remember(highlightMessageId) { mutableStateOf(highlightMessageId) }
+    val contactPhotoUri = remember(address) { smsRepository.getContactPhoto(address) }
     var inputText by remember(initialText) { mutableStateOf(initialText) }
 
     LaunchedEffect(address) {
@@ -116,8 +121,21 @@ fun ChatScreen(
 
     // بارگذاری اولیه پیام‌ها و علامت‌گذاری به عنوان خوانده‌شده
     LaunchedEffect(threadId, address, mergedAddresses) {
+        isLoading = true
         messages = smsRepository.getMessages(threadId, address, mergedAddresses)
         smsRepository.markThreadAsRead(threadId, address, mergedAddresses)
+        isLoading = false
+    }
+
+    LaunchedEffect(messages, highlightMessageId) {
+        if (highlightMessageId != null && messages.isNotEmpty()) {
+            val targetIndex = messages.indexOfFirst { it.id == highlightMessageId }
+            if (targetIndex >= 0) {
+                listState.scrollToItem(targetIndex)
+                delay(2500)
+                targetHighlightedId = null
+            }
+        }
     }
 
     // لیسنر بلادرنگ برای دریافت پیامک‌های جدید به محض ورود به سیستم‌عامل
@@ -176,26 +194,35 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = contactName ?: address,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurface
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        com.blackrain02.spamguard.ui.util.ContactAvatar(
+                            photoUri = contactPhotoUri,
+                            nameOrAddress = contactName ?: address,
+                            size = 38.dp,
+                            isMerged = mergedAddresses.size > 1
                         )
-                        if (mergedAddresses.size > 1) {
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
                             Text(
-                                text = "${mergedAddresses.size} merged senders",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium
+                                text = contactName ?: address,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.5.sp,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
-                        } else if (contactName != null) {
-                            Text(
-                                text = address,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            if (mergedAddresses.size > 1) {
+                                Text(
+                                    text = "${mergedAddresses.size} merged senders",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            } else if (contactName != null) {
+                                Text(
+                                    text = address,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 },
@@ -430,36 +457,64 @@ fun ChatScreen(
             }
         }
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 12.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(uniqueMessages, key = { if (it.id > 0) it.id else "${it.date}_${it.body.hashCode()}" }) { msg ->
-                val alignment = if (msg.isSent) Alignment.CenterEnd else Alignment.CenterStart
-                val bg = if (msg.isSent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                val textColor = if (msg.isSent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                val timeColor = if (msg.isSent) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                val otpCode = remember(msg.body) { OtpHelper.extractOtp(msg.body) }
+        if (isLoading && messages.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                com.blackrain02.spamguard.ui.util.ChatSkeletonList()
+            }
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 12.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(uniqueMessages, key = { if (it.id > 0) it.id else "${it.date}_${it.body.hashCode()}" }) { msg ->
+                    val isHighlighted = msg.id == targetHighlightedId
+                    val alignment = if (msg.isSent) Alignment.CenterEnd else Alignment.CenterStart
+                    val bg = if (isHighlighted) {
+                        MaterialTheme.colorScheme.tertiaryContainer
+                    } else if (msg.isSent) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    }
+                    val textColor = if (isHighlighted) {
+                        MaterialTheme.colorScheme.onTertiaryContainer
+                    } else if (msg.isSent) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    val timeColor = textColor.copy(alpha = 0.7f)
+                    val otpCode = remember(msg.body) { OtpHelper.extractOtp(msg.body) }
+                    val highlightBorder = if (isHighlighted) {
+                        Modifier.border(2.5.dp, MaterialTheme.colorScheme.tertiary, RoundedCornerShape(16.dp))
+                    } else {
+                        Modifier
+                    }
 
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = alignment
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = bg,
-                        modifier = Modifier
-                            .widthIn(max = 300.dp)
-                            .combinedClickable(
-                                onClick = {},
-                                onLongClick = { messageForAction = msg }
-                            )
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = alignment
                     ) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = bg,
+                            modifier = Modifier
+                                .widthIn(max = 300.dp)
+                                .then(highlightBorder)
+                                .combinedClickable(
+                                    onClick = {},
+                                    onLongClick = { messageForAction = msg }
+                                )
+                        ) {
                         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
                             // در صورتی که سرشماره‌ها ادغام شده باشند، سرشماره دقیق ارسال‌کننده نمایش داده می‌شود
                             if (mergedAddresses.size > 1 && !msg.isSent && msg.address.isNotBlank()) {
@@ -633,6 +688,7 @@ fun ChatScreen(
             }
         }
     }
+}
 
     // دیالوگ منوی پیام با نگه‌داشتن طولانی (Copy / Delete)
     if (messageForAction != null) {

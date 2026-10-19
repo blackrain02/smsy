@@ -31,6 +31,22 @@ data class ScanProgress(
     val quarantined: Int
 )
 
+data class CachedContact(
+    val name: String,
+    val photoUri: String? = null
+)
+
+data class MessageSearchResult(
+    val messageId: Long,
+    val threadId: Long,
+    val address: String,
+    val contactName: String?,
+    val body: String,
+    val date: Long,
+    val isSent: Boolean,
+    val photoUri: String? = null
+)
+
 class SmsRepository(private val context: Context) {
 
     private val pinnedPrefs = context.getSharedPreferences("smsy_pinned_threads", Context.MODE_PRIVATE)
@@ -74,7 +90,7 @@ class SmsRepository(private val context: Context) {
     /**
      * کش حافظه‌ای سریع برای نگاشت شماره مخاطبین به نام‌ها جهت جلوگیری از افت سرعت UI
      */
-    private var cachedContacts: Map<String, String>? = null
+    private var cachedContacts: Map<String, CachedContact>? = null
     private var cachedContactList: List<ContactItem>? = null
     private var lastContactCacheTime: Long = 0
 
@@ -82,7 +98,7 @@ class SmsRepository(private val context: Context) {
      * ذخیره پیامک ورودی در دیتابیس رسمی سیستم‌عامل
      * با انتساب صریح Thread ID تا از چندگانگی گفتگو و باگ‌های خوانده‌نشده جلوگیری شود.
      */
-    fun saveToInbox(sender: String, body: String, timestamp: Long, isRead: Boolean = false): Uri? {
+    fun saveToInbox(sender: String, body: String, timestamp: Long, isRead: Boolean = false, subId: Int? = null): Uri? {
         return try {
             val threadId = getOrCreateThreadId(sender)
             val values = ContentValues().apply {
@@ -95,6 +111,9 @@ class SmsRepository(private val context: Context) {
                 put(Telephony.Sms.READ, if (isRead) 1 else 0)
                 put(Telephony.Sms.SEEN, if (isRead) 1 else 0)
                 put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_INBOX)
+                if (subId != null && subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                    put(Telephony.Sms.SUBSCRIPTION_ID, subId)
+                }
             }
             val result = context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values)
             if (!isRead) {
@@ -112,7 +131,7 @@ class SmsRepository(private val context: Context) {
     /**
      * پیش‌بارگذاری تمام مخاطبین گوشی در حافظه رم با یک کوئری فوق‌سریع دسته‌ای (<30ms)
      */
-    private fun getContactCache(): Map<String, String> {
+    private fun getContactCache(): Map<String, CachedContact> {
         val now = System.currentTimeMillis()
         if (cachedContacts != null && (now - lastContactCacheTime) < 60_000) {
             return cachedContacts!!
@@ -122,11 +141,12 @@ class SmsRepository(private val context: Context) {
             return emptyMap()
         }
 
-        val map = HashMap<String, String>()
+        val map = HashMap<String, CachedContact>()
         try {
             val projection = arrayOf(
                 ContactsContract.CommonDataKinds.Phone.NUMBER,
-                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI
             )
             val cursor = context.contentResolver.query(
                 ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
@@ -138,13 +158,15 @@ class SmsRepository(private val context: Context) {
             cursor?.use {
                 val numCol = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
                 val nameCol = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                val photoCol = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI)
                 if (numCol != -1 && nameCol != -1) {
                     while (it.moveToNext()) {
                         val num = it.getString(numCol) ?: continue
                         val name = it.getString(nameCol) ?: continue
+                        val photoUri = if (photoCol != -1) it.getString(photoCol) else null
                         val normalized = normalizePhoneNumber(num)
                         if (normalized.isNotBlank()) {
-                            map[normalized] = name
+                            map[normalized] = CachedContact(name = name, photoUri = photoUri)
                         }
                     }
                 }
@@ -173,7 +195,7 @@ class SmsRepository(private val context: Context) {
     fun isContact(phoneNumber: String): Boolean {
         val map = getContactCache()
         val norm = normalizePhoneNumber(phoneNumber)
-        return !map[norm].isNullOrBlank()
+        return !map[norm]?.name.isNullOrBlank()
     }
 
     /**
@@ -223,7 +245,8 @@ class SmsRepository(private val context: Context) {
             try {
                 val projection = arrayOf(
                     ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-                    ContactsContract.CommonDataKinds.Phone.NUMBER
+                    ContactsContract.CommonDataKinds.Phone.NUMBER,
+                    ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI
                 )
                 val cursor = context.contentResolver.query(
                     ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
@@ -235,13 +258,15 @@ class SmsRepository(private val context: Context) {
                 cursor?.use {
                     val nameCol = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                     val numCol = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                    val photoCol = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI)
                     while (it.moveToNext()) {
                         val name = if (nameCol != -1) it.getString(nameCol) ?: "" else ""
                         val num = if (numCol != -1) it.getString(numCol) ?: "" else ""
+                        val photoUri = if (photoCol != -1) it.getString(photoCol) else null
                         val cleanNum = num.replace(" ", "").replace("-", "")
                         if (cleanNum.isNotBlank() && !seenNumbers.contains(cleanNum)) {
                             seenNumbers.add(cleanNum)
-                            list.add(ContactItem(name = name.ifBlank { num }, number = cleanNum))
+                            list.add(ContactItem(name = name.ifBlank { num }, number = cleanNum, photoUri = photoUri))
                         }
                     }
                 }
@@ -344,7 +369,9 @@ class SmsRepository(private val context: Context) {
                         val threadId = it.getLong(threadIdCol)
                         val snippet = if (bodyCol != -1) it.getString(bodyCol) ?: "" else ""
                         val date = if (dateCol != -1) it.getLong(dateCol) else System.currentTimeMillis()
-                        val contactName = matchedAlias?.displayName ?: contactsMap[addressNorm]
+                        val cachedContact = contactsMap[addressNorm]
+                        val contactName = matchedAlias?.displayName ?: cachedContact?.name
+                        val photoUri = cachedContact?.photoUri
                         val isPinned = pinnedKeys.contains(convKey) || pinnedKeys.contains(getConversationKey(address))
                         val subId = if (subIdCol != -1 && !it.isNull(subIdCol)) it.getInt(subIdCol) else null
                         val isBlocked = blockedSenders.contains(addressLower) ||
@@ -372,7 +399,8 @@ class SmsRepository(private val context: Context) {
                                 aliasId = matchedAlias?.id,
                                 subId = subId,
                                 isBlocked = isBlocked,
-                                isLocked = isLocked
+                                isLocked = isLocked,
+                                photoUri = photoUri
                             )
                         )
                     }
@@ -733,6 +761,18 @@ class SmsRepository(private val context: Context) {
             val insertedUri = context.contentResolver.insert(Telephony.Sms.Sent.CONTENT_URI, values)
             val msgId = insertedUri?.lastPathSegment?.toLongOrNull() ?: 0L
 
+            val sentIntent = if (msgId > 0) {
+                PendingIntent.getBroadcast(
+                    context,
+                    (msgId + 100000).toInt(),
+                    Intent(context, com.blackrain02.spamguard.receiver.SmsSentReceiver::class.java).apply {
+                        action = com.blackrain02.spamguard.receiver.SmsSentReceiver.ACTION_SMS_SENT
+                        putExtra(com.blackrain02.spamguard.receiver.SmsSentReceiver.EXTRA_MESSAGE_ID, msgId)
+                    },
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else null
+
             val deliveryIntent = if (msgId > 0) {
                 PendingIntent.getBroadcast(
                     context,
@@ -763,6 +803,13 @@ class SmsRepository(private val context: Context) {
 
             val parts = smsManager.divideMessage(body)
             if (parts.size > 1) {
+                val sentIntents = if (sentIntent != null) {
+                    ArrayList<PendingIntent>().apply {
+                        for (i in 0 until parts.size) {
+                            add(sentIntent)
+                        }
+                    }
+                } else null
                 val deliveryIntents = if (deliveryIntent != null) {
                     ArrayList<PendingIntent>().apply {
                         for (i in 0 until parts.size) {
@@ -770,9 +817,9 @@ class SmsRepository(private val context: Context) {
                         }
                     }
                 } else null
-                smsManager.sendMultipartTextMessage(address, null, parts, null, deliveryIntents)
+                smsManager.sendMultipartTextMessage(address, null, parts, sentIntents, deliveryIntents)
             } else {
-                smsManager.sendTextMessage(address, null, body, null, deliveryIntent)
+                smsManager.sendTextMessage(address, null, body, sentIntent, deliveryIntent)
             }
 
             true
@@ -876,6 +923,98 @@ class SmsRepository(private val context: Context) {
         if (alias != null) return alias.displayName
 
         val map = getContactCache()
-        return map[normalizePhoneNumber(phoneNumber)]
+        return map[normalizePhoneNumber(phoneNumber)]?.name
+    }
+
+    fun getContactPhoto(phoneNumber: String): String? {
+        val map = getContactCache()
+        return map[normalizePhoneNumber(phoneNumber)]?.photoUri
+    }
+
+    /**
+     * جستجوی عمیق متنی (Full-Text Search) در تمام تاریخچه پیامک‌های دستگاه
+     */
+    suspend fun searchMessagesFullText(query: String): List<MessageSearchResult> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.length < 2) return@withContext emptyList()
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+            return@withContext emptyList()
+        }
+
+        val contactsMap = getContactCache()
+        val allAliases = aliasRepo.getAllAliases()
+        val exactAliasMap = HashMap<String, SenderGroupAlias>()
+        val normalizedAliasMap = HashMap<String, SenderGroupAlias>()
+        for (alias in allAliases) {
+            for (num in alias.numbers) {
+                exactAliasMap[num.trim().lowercase()] = alias
+                val norm = normalizePhoneNumber(num)
+                if (norm.length >= 7) {
+                    normalizedAliasMap[norm] = alias
+                }
+            }
+        }
+
+        val results = mutableListOf<MessageSearchResult>()
+        try {
+            val projection = arrayOf(
+                Telephony.Sms._ID,
+                Telephony.Sms.THREAD_ID,
+                Telephony.Sms.ADDRESS,
+                Telephony.Sms.BODY,
+                Telephony.Sms.DATE,
+                Telephony.Sms.TYPE
+            )
+            val selection = "${Telephony.Sms.BODY} LIKE ?"
+            val selectionArgs = arrayOf("%$q%")
+            val cursor = context.contentResolver.query(
+                Telephony.Sms.CONTENT_URI,
+                projection,
+                selection,
+                selectionArgs,
+                "${Telephony.Sms.DATE} DESC LIMIT 100"
+            )
+            cursor?.use {
+                val idCol = it.getColumnIndex(Telephony.Sms._ID)
+                val threadIdCol = it.getColumnIndex(Telephony.Sms.THREAD_ID)
+                val addressCol = it.getColumnIndex(Telephony.Sms.ADDRESS)
+                val bodyCol = it.getColumnIndex(Telephony.Sms.BODY)
+                val dateCol = it.getColumnIndex(Telephony.Sms.DATE)
+                val typeCol = it.getColumnIndex(Telephony.Sms.TYPE)
+
+                while (it.moveToNext()) {
+                    val id = it.getLong(idCol)
+                    val threadId = it.getLong(threadIdCol)
+                    val address = it.getString(addressCol) ?: "Unknown"
+                    val body = it.getString(bodyCol) ?: ""
+                    val date = it.getLong(dateCol)
+                    val type = it.getInt(typeCol)
+                    val isSent = type == Telephony.Sms.MESSAGE_TYPE_SENT
+
+                    val addressLower = address.trim().lowercase()
+                    val addressNorm = normalizePhoneNumber(address)
+                    val matchedAlias = exactAliasMap[addressLower] ?: if (addressNorm.length >= 7) normalizedAliasMap[addressNorm] else null
+                    val cachedContact = contactsMap[addressNorm]
+                    val contactName = matchedAlias?.displayName ?: cachedContact?.name
+                    val photoUri = cachedContact?.photoUri
+
+                    results.add(
+                        MessageSearchResult(
+                            messageId = id,
+                            threadId = threadId,
+                            address = address,
+                            contactName = contactName,
+                            body = body,
+                            date = date,
+                            isSent = isSent,
+                            photoUri = photoUri
+                        )
+                    )
+                }
+            }
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+        results
     }
 }

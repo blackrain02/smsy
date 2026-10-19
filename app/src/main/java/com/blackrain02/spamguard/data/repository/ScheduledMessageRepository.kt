@@ -91,4 +91,17 @@ class ScheduledMessageRepository(private val context: Context) {
     }
 
     suspend fun getAllList(): List<ScheduledMessageEntity> = dao.getAllList()
+
+    suspend fun rescheduleAllPending() {
+        val pendingList = dao.getAllList().filter { it.status == "PENDING" }
+        val now = System.currentTimeMillis()
+        for (msg in pendingList) {
+            if (msg.scheduledTime > now) {
+                setAlarm(msg.id, msg.scheduledTime)
+            } else {
+                // آلارم در حین خاموش بودن دستگاه گذشته است؛ ۳ ثانیه دیگر ارسال شود
+                setAlarm(msg.id, now + 3000L)
+            }
+        }
+    }
 }

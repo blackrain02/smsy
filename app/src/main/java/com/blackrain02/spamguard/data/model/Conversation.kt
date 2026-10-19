@@ -15,5 +15,6 @@ data class Conversation(
     val aliasId: String? = null,
     val subId: Int? = null,
     val isBlocked: Boolean = false,
-    val isLocked: Boolean = false
+    val isLocked: Boolean = false,
+    val photoUri: String? = null
 )

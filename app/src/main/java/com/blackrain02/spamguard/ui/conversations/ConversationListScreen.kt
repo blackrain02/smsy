@@ -68,6 +68,12 @@ import com.blackrain02.spamguard.ui.theme.ThemePreferences
 import com.blackrain02.spamguard.ui.util.LocalAppStrings
 import com.blackrain02.spamguard.ui.util.DateUtils
 import android.widget.Toast
+import com.blackrain02.spamguard.ui.MainActivity
+import com.blackrain02.spamguard.ui.util.ContactAvatar
+import com.blackrain02.spamguard.ui.util.ConversationSkeletonList
+import com.blackrain02.spamguard.data.repository.MessageSearchResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -85,19 +91,49 @@ fun ConversationListScreen(
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     cachedConversations: List<Conversation> = emptyList(),
     onConversationsLoaded: (List<Conversation>) -> Unit = {},
+    onOpenSearchResultMessage: (Long, String, String?, Long) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val strings = LocalAppStrings.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var conversations by remember { mutableStateOf(cachedConversations) }
+    var isLoading by remember { mutableStateOf(cachedConversations.isEmpty()) }
 
     LaunchedEffect(cachedConversations) {
         if (cachedConversations.isNotEmpty() && conversations.isEmpty()) {
             conversations = cachedConversations
+            isLoading = false
         }
     }
     var searchQuery by remember { mutableStateOf("") }
+    var fullTextResults by remember { mutableStateOf<List<MessageSearchResult>>(emptyList()) }
+    var isSearchingMessages by remember { mutableStateOf(false) }
+
+    LaunchedEffect(searchQuery) {
+        val query = searchQuery.trim()
+        if (query.length >= 2) {
+            delay(300)
+            isSearchingMessages = true
+            withContext(Dispatchers.IO) {
+                try {
+                    val res = smsRepository.searchMessagesFullText(query)
+                    withContext(Dispatchers.Main) {
+                        fullTextResults = res
+                        isSearchingMessages = false
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        fullTextResults = emptyList()
+                        isSearchingMessages = false
+                    }
+                }
+            }
+        } else {
+            fullTextResults = emptyList()
+            isSearchingMessages = false
+        }
+    }
     var isSolarCalendar by remember { mutableStateOf(DateUtils.isSolarCalendar(context)) }
     var showCalendarDialog by remember { mutableStateOf(false) }
     var isDefaultApp by remember { mutableStateOf(checkIsDefaultSmsApp(context)) }
@@ -194,11 +230,16 @@ fun ConversationListScreen(
     fun refreshList() {
         scope.launch {
             try {
+                if (conversations.isEmpty()) {
+                    isLoading = true
+                }
                 val fresh = smsRepository.getConversations()
                 conversations = fresh
                 onConversationsLoaded(fresh)
             } catch (e: Throwable) {
                 e.printStackTrace()
+            } finally {
+                isLoading = false
             }
         }
     }
@@ -514,6 +555,16 @@ fun ConversationListScreen(
 
             Spacer(modifier = Modifier.height(2.dp))
 
+            val handleConversationClick = { item: Conversation ->
+                if (item.isLocked) {
+                    pendingUnlockedConversation = item
+                    pinActionSubtitle = strings.pinPromptChat
+                    pinDialogMode = PinDialogMode.VERIFY
+                } else {
+                    onConversationClick(item)
+                }
+            }
+
             // لیست پیامک‌ها
             if (!hasSmsPermission) {
                 Box(
@@ -548,13 +599,132 @@ fun ConversationListScreen(
                         }
                     }
                 }
+            } else if (isLoading && conversations.isEmpty()) {
+                ConversationSkeletonList(count = 9)
+            } else if (searchQuery.isNotBlank()) {
+                if (filteredConversations.isEmpty() && fullTextResults.isEmpty() && !isSearchingMessages) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            strings.noMessagesMatch(searchQuery),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 14.sp
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        // ۱. گفتگوهای منطبق
+                        if (filteredConversations.isNotEmpty()) {
+                            item(key = "header_search_conversations") {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Forum,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            strings.searchConversationsHeader + " (${filteredConversations.size})",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.5.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+
+                            items(
+                                items = filteredConversations,
+                                key = { "search_c_" + (it.aliasId ?: "${it.threadId}_${it.address}") },
+                                contentType = { "conversation" }
+                            ) { item ->
+                                ConversationItem(
+                                    conversation = item,
+                                    isSelectionMode = false,
+                                    isSelected = false,
+                                    isSolarCalendar = isSolarCalendar,
+                                    onClick = { handleConversationClick(item) },
+                                    onLongClick = { selectedConversationForAction = item }
+                                )
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                                )
+                            }
+                        }
+
+                        // ۲. پیام‌های یافت‌شده در متن (Deep Search)
+                        if (fullTextResults.isNotEmpty()) {
+                            item(key = "header_search_messages") {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Description,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.secondary,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            strings.searchResultsMessages + " (${fullTextResults.size})",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.5.sp,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                }
+                            }
+
+                            items(
+                                items = fullTextResults,
+                                key = { "search_m_${it.messageId}" },
+                                contentType = { "search_message" }
+                            ) { result ->
+                                MessageSearchResultItem(
+                                    result = result,
+                                    isSolarCalendar = isSolarCalendar,
+                                    onClick = {
+                                        onOpenSearchResultMessage(result.threadId, result.address, result.contactName, result.messageId)
+                                    }
+                                )
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                                )
+                            }
+                        }
+                    }
+                }
             } else if (filteredConversations.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        if (searchQuery.isNotBlank()) strings.noMessagesMatch(searchQuery) else strings.noMessagesFound,
+                        strings.noMessagesFound,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 14.sp
                     )
@@ -570,16 +740,6 @@ fun ConversationListScreen(
 
                 val (pinnedList, normalList) = remember(uniqueConversations) {
                     uniqueConversations.partition { it.isPinned }
-                }
-
-                val handleConversationClick = { item: Conversation ->
-                    if (item.isLocked) {
-                        pendingUnlockedConversation = item
-                        pinActionSubtitle = strings.pinPromptChat
-                        pinDialogMode = PinDialogMode.VERIFY
-                    } else {
-                        onConversationClick(item)
-                    }
                 }
 
                 LazyColumn(
@@ -1282,7 +1442,11 @@ fun ConversationListScreen(
                     Text(strings.financialDashboard, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
                 }
 
-                // ۸. امنیت و رمز عبور ۴ رقمی (PIN)
+                // ۸. امنیت، حریم خصوصی و رمز عبور (PIN)
+                Text(strings.securitySettings, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // تعیین / تغییر پین ۴ رقمی
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1309,6 +1473,45 @@ fun ConversationListScreen(
                 }
 
                 if (securityRepo.isPinSet()) {
+                    // پین فریب اضطراری (Decoy PIN)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (securityRepo.isDecoyPinSet()) {
+                                    securityRepo.removeDecoyPin()
+                                    Toast.makeText(context, strings.decoyPinRemoved, Toast.LENGTH_SHORT).show()
+                                } else {
+                                    showSettingsSheet = false
+                                    pinActionSubtitle = strings.decoyPinSubtitle
+                                    pinDialogMode = PinDialogMode.SET_DECOY
+                                }
+                            }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Shield,
+                            contentDescription = null,
+                            tint = if (securityRepo.isDecoyPinSet()) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                if (securityRepo.isDecoyPinSet()) strings.removeDecoyPin else strings.setDecoyPin,
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                strings.decoyPinSubtitle,
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // حذف پین
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1324,6 +1527,91 @@ fun ConversationListScreen(
                         Icon(Icons.Default.LockReset, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(strings.removePin, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+
+                // بازگشایی با اثر انگشت (بیومتریک)
+                var biometricEnabled by remember { mutableStateOf(securityRepo.isBiometricEnabled()) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val newVal = !biometricEnabled
+                            securityRepo.setBiometricEnabled(newVal)
+                            biometricEnabled = newVal
+                        }
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Fingerprint, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(strings.biometricUnlock, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(strings.biometricSubtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = biometricEnabled,
+                        onCheckedChange = {
+                            securityRepo.setBiometricEnabled(it)
+                            biometricEnabled = it
+                        }
+                    )
+                }
+
+                // محافظت در منوی برنامه‌های اخیر (FLAG_SECURE)
+                var flagSecureEnabled by remember { mutableStateOf(securityRepo.isFlagSecureEnabled()) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val newVal = !flagSecureEnabled
+                            securityRepo.setFlagSecureEnabled(newVal)
+                            flagSecureEnabled = newVal
+                            (context as? MainActivity)?.applyFlagSecure()
+                        }
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.VisibilityOff, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(strings.flagSecureTitle, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(strings.flagSecureSubtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = flagSecureEnabled,
+                        onCheckedChange = {
+                            securityRepo.setFlagSecureEnabled(it)
+                            flagSecureEnabled = it
+                            (context as? MainActivity)?.applyFlagSecure()
+                        }
+                    )
+                }
+
+                // زمان قفل خودکار نشست (Auto-Lock Timeout)
+                var autoLockMinutes by remember { mutableStateOf(securityRepo.getAutoLockTimeoutMinutes()) }
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Text(strings.autoLockTimeout, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            0 to strings.autoLockImmediate,
+                            1 to strings.autoLock1Min,
+                            5 to strings.autoLock5Min
+                        ).forEach { (mins, label) ->
+                            FilterChip(
+                                selected = autoLockMinutes == mins,
+                                onClick = {
+                                    securityRepo.setAutoLockTimeoutMinutes(mins)
+                                    autoLockMinutes = mins
+                                },
+                                label = { Text(label, fontSize = 11.5.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
 
@@ -2231,25 +2519,13 @@ fun ConversationItem(
             }
         }
 
-        val initials = remember(conversation.contactName, conversation.address) {
-            (conversation.contactName ?: conversation.address).take(1).uppercase()
-        }
-        val avatarBg = if (isUnread) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-        val avatarTextColor = if (isUnread) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-
-        Box(
-            modifier = Modifier
-                .size(46.dp)
-                .background(avatarBg, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                initials,
-                fontWeight = FontWeight.Bold,
-                fontSize = 17.sp,
-                color = avatarTextColor
-            )
-        }
+        ContactAvatar(
+            photoUri = conversation.photoUri,
+            nameOrAddress = conversation.contactName ?: conversation.address,
+            isUnread = isUnread,
+            size = 46.dp,
+            isMerged = conversation.mergedAddresses.size > 1
+        )
 
         Spacer(modifier = Modifier.width(12.dp))
 
@@ -2393,6 +2669,65 @@ fun ConversationItem(
             } else {
                 Spacer(modifier = Modifier.height(20.dp))
             }
+        }
+    }
+}
+
+@Composable
+fun MessageSearchResultItem(
+    result: MessageSearchResult,
+    isSolarCalendar: Boolean = true,
+    onClick: () -> Unit
+) {
+    val dateText = remember(result.date, isSolarCalendar) {
+        DateUtils.formatConversationDate(result.date, isSolarCalendar)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ContactAvatar(
+            photoUri = result.photoUri,
+            nameOrAddress = result.contactName ?: result.address,
+            size = 44.dp
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = result.contactName ?: result.address,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.5.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = dateText,
+                    fontSize = 11.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = (if (result.isSent) "✓ " else "") + result.body,
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

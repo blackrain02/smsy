@@ -1,5 +1,9 @@
 package com.blackrain02.spamguard.ui.security
 
+import android.hardware.biometrics.BiometricManager
+import android.hardware.biometrics.BiometricPrompt
+import android.os.Build
+import android.os.CancellationSignal
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -13,8 +17,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Password
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,7 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -38,7 +44,8 @@ import kotlinx.coroutines.delay
 enum class PinDialogMode {
     VERIFY,
     SET,
-    CHANGE
+    CHANGE,
+    SET_DECOY
 }
 
 @Composable
@@ -49,15 +56,73 @@ fun PinDialog(
     onSuccess: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val strings = LocalAppStrings.current
     val focusRequester = remember { FocusRequester() }
+
+    val hasBiometric = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val bm = context.getSystemService(BiometricManager::class.java)
+            bm?.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
+        } else false
+    }
+
+    var cancellationSignal by remember { mutableStateOf<CancellationSignal?>(null) }
+
+    fun triggerBiometric() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && hasBiometric && securityRepository.isBiometricEnabled() && mode == PinDialogMode.VERIFY) {
+            try {
+                cancellationSignal?.cancel()
+                val signal = CancellationSignal()
+                cancellationSignal = signal
+
+                val prompt = BiometricPrompt.Builder(context)
+                    .setTitle(strings.biometricPromptTitle)
+                    .setSubtitle(strings.biometricPromptSubtitle)
+                    .setNegativeButton(strings.usePinInstead, context.mainExecutor) { _, _ -> }
+                    .build()
+
+                prompt.authenticate(
+                    signal,
+                    context.mainExecutor,
+                    object : BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
+                            securityRepository.authenticateSession(isDecoy = false)
+                            onSuccess()
+                        }
+                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                            // User selected PIN or dismissed
+                        }
+                        override fun onAuthenticationFailed() {
+                            // Fingerprint not recognized
+                        }
+                    }
+                )
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (mode == PinDialogMode.VERIFY && hasBiometric && securityRepository.isBiometricEnabled()) {
+            delay(200)
+            triggerBiometric()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            cancellationSignal?.cancel()
+        }
+    }
 
     // وضعیت‌های داخلی برای مدهای چندمرحله‌ای
     var currentStep by remember(mode) {
         mutableStateOf(
             when (mode) {
                 PinDialogMode.VERIFY -> "VERIFY"
-                PinDialogMode.SET -> "SET_NEW"
+                PinDialogMode.SET, PinDialogMode.SET_DECOY -> "SET_NEW"
                 PinDialogMode.CHANGE -> "VERIFY_OLD"
             }
         )
@@ -76,7 +141,10 @@ fun PinDialog(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            cancellationSignal?.cancel()
+            onDismiss()
+        },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
@@ -101,7 +169,11 @@ fun PinDialog(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (mode == PinDialogMode.VERIFY) Icons.Default.Lock else Icons.Default.Password,
+                            imageVector = when {
+                                mode == PinDialogMode.SET_DECOY -> Icons.Default.Shield
+                                mode == PinDialogMode.VERIFY -> Icons.Default.Lock
+                                else -> Icons.Default.Password
+                            },
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(28.dp)
@@ -113,7 +185,7 @@ fun PinDialog(
 
                 val dialogTitle = when (currentStep) {
                     "VERIFY", "VERIFY_OLD" -> strings.enterPinTitle
-                    "SET_NEW" -> strings.setPinTitle
+                    "SET_NEW" -> if (mode == PinDialogMode.SET_DECOY) strings.setDecoyPin else strings.setPinTitle
                     "CONFIRM_NEW" -> strings.confirmPinTitle
                     else -> strings.enterPinTitle
                 }
@@ -125,7 +197,7 @@ fun PinDialog(
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                if (!subtitle.isNullOrBlank() && currentStep == "VERIFY") {
+                if (!subtitle.isNullOrBlank() && (currentStep == "VERIFY" || currentStep == "SET_NEW")) {
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = subtitle,
@@ -182,7 +254,9 @@ fun PinDialog(
                             if (newVal.length == 4) {
                                 when (currentStep) {
                                     "VERIFY" -> {
-                                        if (securityRepository.verifyPin(newVal)) {
+                                        val result = securityRepository.verifyPinWithDecoy(newVal)
+                                        if (result != null) {
+                                            securityRepository.authenticateSession(isDecoy = result.isDecoy)
                                             onSuccess()
                                         } else {
                                             errorMessage = strings.pinIncorrect
@@ -203,7 +277,12 @@ fun PinDialog(
                                     }
                                     "CONFIRM_NEW" -> {
                                         if (newVal == tempNewPin) {
-                                            securityRepository.setPin(newVal)
+                                            if (mode == PinDialogMode.SET_DECOY) {
+                                                securityRepository.setDecoyPin(newVal)
+                                            } else {
+                                                securityRepository.setPin(newVal)
+                                            }
+                                            securityRepository.authenticateSession(isDecoy = false)
                                             onSuccess()
                                         } else {
                                             errorMessage = strings.pinMismatch
@@ -254,9 +333,27 @@ fun PinDialog(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onDismiss) {
+                    // دکمه فراخوانی مجدد سنسور اثر انگشت در صورت فعال بودن
+                    if (mode == PinDialogMode.VERIFY && hasBiometric && securityRepository.isBiometricEnabled()) {
+                        IconButton(onClick = { triggerBiometric() }) {
+                            Icon(
+                                Icons.Default.Fingerprint,
+                                contentDescription = "Fingerprint",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(1.dp))
+                    }
+
+                    TextButton(onClick = {
+                        cancellationSignal?.cancel()
+                        onDismiss()
+                    }) {
                         Text(strings.cancel)
                     }
                 }

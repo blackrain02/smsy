@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -59,7 +60,8 @@ sealed class Screen {
         val address: String,
         val contactName: String?,
         val mergedAddresses: Set<String> = emptySet(),
-        val initialText: String = ""
+        val initialText: String = "",
+        val highlightMessageId: Long? = null
     ) : Screen()
     object NewMessage : Screen()
 }
@@ -71,7 +73,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var securityRepo: SecurityRepository
 
     private var pendingChatTarget by mutableStateOf<Screen.Chat?>(null)
-    private var isSessionAuthenticated by mutableStateOf(false)
 
     private val permissionTrigger = mutableIntStateOf(0)
 
@@ -81,12 +82,38 @@ class MainActivity : ComponentActivity() {
         permissionTrigger.intValue++
     }
 
+    fun applyFlagSecure() {
+        if (::securityRepo.isInitialized && securityRepo.isFlagSecureEnabled()) {
+            window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyFlagSecure()
+        if (::securityRepo.isInitialized && securityRepo.isPinSet() && !securityRepo.isSessionValid()) {
+            securityRepo.invalidateSession()
+        }
+        // پاک‌سازی خودکار تمام اعلان‌های برنامه به محض باز شدن
+        NotificationHelper.cancelAll(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (::securityRepo.isInitialized && securityRepo.getAutoLockTimeoutMinutes() == 0) {
+            securityRepo.invalidateSession()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         smsRepository = SmsRepository(this)
         spamRepository = SpamRepository(this)
         bankRepo = BankTransactionRepository(this)
         securityRepo = SecurityRepository(this)
+        applyFlagSecure()
 
         handleIncomingIntent(intent)
         checkAndRequestPermissions()
@@ -115,9 +142,10 @@ class MainActivity : ComponentActivity() {
                         pendingChatTarget?.let { target ->
                             val alias = smsRepository.aliasRepository.getAliasForAddress(target.address)
                             val lockKey = securityRepo.getLockKey(target.address, alias?.id)
-                            if (securityRepo.isConversationLocked(lockKey) && !isSessionAuthenticated) {
+                            if (securityRepo.isConversationLocked(lockKey) && !securityRepo.isSessionValid()) {
                                 pendingLockedChatTarget = target
                             } else {
+                                securityRepo.touchAuth()
                                 currentScreen = target
                             }
                             pendingChatTarget = null
@@ -128,9 +156,10 @@ class MainActivity : ComponentActivity() {
                     val openFinanceTab = {
                         if (!securityRepo.isPinSet()) {
                             showFinancePinDialog = PinDialogMode.SET
-                        } else if (!isSessionAuthenticated) {
+                        } else if (!securityRepo.isSessionValid()) {
                             showFinancePinDialog = PinDialogMode.VERIFY
                         } else {
+                            securityRepo.touchAuth()
                             currentScreen = Screen.Finance
                         }
                     }
@@ -143,7 +172,6 @@ class MainActivity : ComponentActivity() {
                             subtitle = if (showFinancePinDialog == PinDialogMode.SET) strings.pinPromptSetFirst else strings.pinPromptFinance,
                             onSuccess = {
                                 showFinancePinDialog = null
-                                isSessionAuthenticated = true
                                 currentScreen = Screen.Finance
                             },
                             onDismiss = {
@@ -161,7 +189,6 @@ class MainActivity : ComponentActivity() {
                             onSuccess = {
                                 val target = pendingLockedChatTarget
                                 pendingLockedChatTarget = null
-                                isSessionAuthenticated = true
                                 if (target != null) {
                                     currentScreen = target
                                 }
@@ -341,6 +368,18 @@ class MainActivity : ComponentActivity() {
                                                     contactName = conv.contactName,
                                                     mergedAddresses = conv.mergedAddresses
                                                 )
+                                            },
+                                            onOpenSearchResultMessage = { threadId, address, contactName, messageId ->
+                                                val alias = smsRepository.aliasRepository.getAliasForAddress(address)
+                                                val merged = alias?.numbers ?: emptySet()
+                                                smsRepository.markThreadAsReadAsync(threadId, address, merged, alias?.id)
+                                                currentScreen = Screen.Chat(
+                                                    threadId = threadId,
+                                                    address = address,
+                                                    contactName = contactName,
+                                                    mergedAddresses = merged,
+                                                    highlightMessageId = messageId
+                                                )
                                             }
                                         )
                                     }
@@ -361,7 +400,8 @@ class MainActivity : ComponentActivity() {
                                             smsRepository = smsRepository,
                                             onBack = { currentScreen = Screen.Conversations },
                                             mergedAddresses = screen.mergedAddresses,
-                                            initialText = screen.initialText
+                                            initialText = screen.initialText,
+                                            highlightMessageId = screen.highlightMessageId
                                         )
                                     }
                                     is Screen.NewMessage -> {
@@ -388,11 +428,6 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntent(intent)
     }
 
-    override fun onResume() {
-        super.onResume()
-        // پاک‌سازی خودکار تمام اعلان‌های برنامه به محض باز شدن
-        NotificationHelper.cancelAll(this)
-    }
 
     /**
      * استخراج شماره تلفن، مخاطب و متن از اینتنت‌های سیستمی (دکمه پیامک لاگ تماس، مخاطبین، به اشتراک‌گذاری)

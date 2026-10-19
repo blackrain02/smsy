@@ -26,6 +26,13 @@ class SmsDeliverReceiver : BroadcastReceiver() {
         val fullBody = messages.joinToString("") { it.displayMessageBody ?: "" }
         val timestamp = messages[0].timestampMillis
 
+        val subId = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val extra = intent.getIntExtra(android.telephony.SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+            if (extra != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID) extra else intent.getIntExtra("subscription", android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+        } else {
+            intent.getIntExtra("subscription", android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+        }
+
         val pendingResult = goAsync()
 
         scope.launch {
@@ -42,7 +49,7 @@ class SmsDeliverReceiver : BroadcastReceiver() {
 
                 // گام ۱: مخاطبین دفترچه تلفن و لیست سفید کاربر هرگز اسپم نیستند
                 if (smsRepo.isContact(sender) || spamRepo.isUserWhitelisted(sender)) {
-                    val uri = smsRepo.saveToInbox(sender, fullBody, timestamp)
+                    val uri = smsRepo.saveToInbox(sender, fullBody, timestamp, isRead = false, subId = subId)
                     val threadId = smsRepo.getOrCreateThreadId(sender)
                     val bankRepo = com.blackrain02.spamguard.data.repository.BankTransactionRepository(context)
                     bankRepo.recordIfBankMessage(sender, fullBody, timestamp)
@@ -59,7 +66,7 @@ class SmsDeliverReceiver : BroadcastReceiver() {
                     spamRepo.quarantine(sender, fullBody, result.spamProbability)
                 } else {
                     // پیامک عادی/بانکی: ذخیره در پیامک‌های رسمی گوشی و ارسال اعلان
-                    val uri = smsRepo.saveToInbox(sender, fullBody, timestamp)
+                    val uri = smsRepo.saveToInbox(sender, fullBody, timestamp, isRead = false, subId = subId)
                     val threadId = smsRepo.getOrCreateThreadId(sender)
                     val bankRepo = com.blackrain02.spamguard.data.repository.BankTransactionRepository(context)
                     bankRepo.recordIfBankMessage(sender, fullBody, timestamp)
