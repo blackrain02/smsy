@@ -86,13 +86,18 @@ fun ChatScreen(
     contactName: String?,
     smsRepository: SmsRepository,
     onBack: () -> Unit,
-    mergedAddresses: Set<String> = emptySet()
+    mergedAddresses: Set<String> = emptySet(),
+    initialText: String = ""
 ) {
     val context = LocalContext.current
     val isSolarCalendar = remember { DateUtils.isSolarCalendar(context) }
     val clipboardManager = LocalClipboardManager.current
     var messages by remember { mutableStateOf<List<Message>>(emptyList()) }
-    var inputText by remember { mutableStateOf("") }
+    var inputText by remember(initialText) { mutableStateOf(initialText) }
+
+    LaunchedEffect(address) {
+        com.blackrain02.spamguard.notification.NotificationHelper.cancelForSender(context, address)
+    }
     var messageForAction by remember { mutableStateOf<Message?>(null) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()

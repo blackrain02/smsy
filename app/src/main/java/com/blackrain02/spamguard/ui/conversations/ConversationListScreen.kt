@@ -59,6 +59,8 @@ import com.blackrain02.spamguard.data.repository.ScanProgress
 import com.blackrain02.spamguard.data.repository.SmsRepository
 import com.blackrain02.spamguard.data.repository.SpamRepository
 import com.blackrain02.spamguard.data.repository.TemplateRepository
+import com.blackrain02.spamguard.ui.security.PinDialog
+import com.blackrain02.spamguard.ui.security.PinDialogMode
 import com.blackrain02.spamguard.ui.theme.BubblePalette
 import com.blackrain02.spamguard.ui.theme.ThemeMode
 import com.blackrain02.spamguard.ui.theme.AppLanguage
@@ -79,6 +81,7 @@ fun ConversationListScreen(
     permissionTrigger: Int = 0,
     onRequestPermissions: () -> Unit = {},
     onNewMessageClick: () -> Unit = {},
+    onOpenFinance: () -> Unit = {},
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     cachedConversations: List<Conversation> = emptyList(),
     onConversationsLoaded: (List<Conversation>) -> Unit = {},
@@ -131,11 +134,11 @@ fun ConversationListScreen(
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showBlocklistDialog by remember { mutableStateOf(false) }
     var showTemplatesDialog by remember { mutableStateOf(false) }
-    var showFinancialSheet by remember { mutableStateOf(false) }
-    val bankRepo = remember { BankTransactionRepository(context) }
-    val financialStats by bankRepo.getFinancialStats().collectAsState(initial = FinancialStats())
-    val allTransactions by bankRepo.getAllTransactions().collectAsState(initial = emptyList())
-    var isScanningBankSms by remember { mutableStateOf(false) }
+    val securityRepo = remember { smsRepository.securityRepository }
+    var pinDialogMode by remember { mutableStateOf<PinDialogMode?>(null) }
+    var pendingUnlockedConversation by remember { mutableStateOf<Conversation?>(null) }
+    var conversationToLockUnlock by remember { mutableStateOf<Conversation?>(null) }
+    var pinActionSubtitle by remember { mutableStateOf<String?>(null) }
 
     val createBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -569,6 +572,16 @@ fun ConversationListScreen(
                     uniqueConversations.partition { it.isPinned }
                 }
 
+                val handleConversationClick = { item: Conversation ->
+                    if (item.isLocked) {
+                        pendingUnlockedConversation = item
+                        pinActionSubtitle = strings.pinPromptChat
+                        pinDialogMode = PinDialogMode.VERIFY
+                    } else {
+                        onConversationClick(item)
+                    }
+                }
+
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize()
@@ -623,7 +636,7 @@ fun ConversationListScreen(
                                             selectedConversations + item
                                         }
                                     } else {
-                                        onConversationClick(item)
+                                        handleConversationClick(item)
                                     }
                                 },
                                 onLongClick = {
@@ -695,7 +708,7 @@ fun ConversationListScreen(
                                         selectedConversations + item
                                     }
                                 } else {
-                                    onConversationClick(item)
+                                    handleConversationClick(item)
                                 }
                             },
                             onLongClick = {
@@ -863,6 +876,48 @@ fun ConversationListScreen(
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
                         if (target.isPinned) strings.unpinFromTop else strings.pinToTop,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                // ۲. قفل / باز کردن قفل با رمز عبور ۴ رقمی
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val targetConv = target
+                            selectedConversationForAction = null
+                            if (!securityRepo.isPinSet()) {
+                                conversationToLockUnlock = targetConv
+                                pinActionSubtitle = strings.pinPromptSetFirst
+                                pinDialogMode = PinDialogMode.SET
+                            } else {
+                                if (targetConv.isLocked) {
+                                    conversationToLockUnlock = targetConv
+                                    pinActionSubtitle = strings.unlockConversation
+                                    pinDialogMode = PinDialogMode.VERIFY
+                                } else {
+                                    val lockKey = securityRepo.getLockKey(targetConv)
+                                    securityRepo.setConversationLocked(lockKey, true)
+                                    Toast.makeText(context, strings.conversationLockedSuccess, Toast.LENGTH_SHORT).show()
+                                    refreshList()
+                                }
+                            }
+                        }
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        if (target.isLocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(
+                        if (target.isLocked) strings.unlockConversation else strings.lockConversation,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
@@ -1215,13 +1270,61 @@ fun ConversationListScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { showFinancialSheet = true; showSettingsSheet = false }
+                        .clickable {
+                            showSettingsSheet = false
+                            onOpenFinance()
+                        }
                         .padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(strings.financialDashboard, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
+                }
+
+                // ۸. امنیت و رمز عبور ۴ رقمی (PIN)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showSettingsSheet = false
+                            if (securityRepo.isPinSet()) {
+                                pinActionSubtitle = strings.changePin
+                                pinDialogMode = PinDialogMode.CHANGE
+                            } else {
+                                pinActionSubtitle = strings.pinPromptSetFirst
+                                pinDialogMode = PinDialogMode.SET
+                            }
+                        }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Password, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        if (securityRepo.isPinSet()) strings.changePin else strings.setPinTitle,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (securityRepo.isPinSet()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showSettingsSheet = false
+                                securityRepo.removePin()
+                                Toast.makeText(context, strings.pinRemovedSuccess, Toast.LENGTH_SHORT).show()
+                                refreshList()
+                            }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.LockReset, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(strings.removePin, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.error)
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -1552,255 +1655,42 @@ fun ConversationListScreen(
         }
     }
 
-    // شیت مدیریت مالی و حسابداری پیامک‌های بانکی
-    if (showFinancialSheet) {
-        var selectedFilter by remember { mutableStateOf("ALL") }
-        val filteredTransactions = remember(allTransactions, selectedFilter) {
-            when (selectedFilter) {
-                "DEPOSIT" -> allTransactions.filter { it.type == "DEPOSIT" }
-                "WITHDRAWAL" -> allTransactions.filter { it.type == "WITHDRAWAL" }
-                else -> allTransactions
-            }
-        }
+    // دیالوگ اعتبارسنجی / تنظیم رمز عبور ۴ رقمی (PIN)
+    if (pinDialogMode != null) {
+        PinDialog(
+            mode = pinDialogMode!!,
+            securityRepository = securityRepo,
+            subtitle = pinActionSubtitle,
+            onSuccess = {
+                val pendingConv = pendingUnlockedConversation
+                val lockTarget = conversationToLockUnlock
+                pinDialogMode = null
+                pendingUnlockedConversation = null
+                conversationToLockUnlock = null
 
-        ModalBottomSheet(
-            onDismissRequest = { showFinancialSheet = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            containerColor = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-                    .padding(bottom = 28.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.AccountBalanceWallet,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            strings.financialDashboard,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                if (pendingConv != null) {
+                    onConversationClick(pendingConv)
+                } else if (lockTarget != null) {
+                    val lockKey = securityRepo.getLockKey(lockTarget)
+                    if (lockTarget.isLocked) {
+                        securityRepo.setConversationLocked(lockKey, false)
+                        Toast.makeText(context, strings.conversationUnlockedSuccess, Toast.LENGTH_SHORT).show()
+                    } else {
+                        securityRepo.setConversationLocked(lockKey, true)
+                        Toast.makeText(context, strings.conversationLockedSuccess, Toast.LENGTH_SHORT).show()
                     }
-                    IconButton(onClick = { showFinancialSheet = false }) {
-                        Icon(Icons.Default.Close, contentDescription = strings.close)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // کارت خلاصه آمار و تراز مالی
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // واریزی‌ها
-                    Surface(
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF10B981).copy(alpha = 0.12f)
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Text(strings.totalDeposits, fontSize = 11.sp, color = Color(0xFF059669))
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = String.format(java.util.Locale.ENGLISH, "%,d", financialStats.totalDeposits) + " ت",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF047857)
-                            )
-                        }
-                    }
-
-                    // برداشت‌ها
-                    Surface(
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFFEF4444).copy(alpha = 0.12f)
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Text(strings.totalWithdrawals, fontSize = 11.sp, color = Color(0xFFDC2626))
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = String.format(java.util.Locale.ENGLISH, "%,d", financialStats.totalWithdrawals) + " ت",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFB91C1C)
-                            )
-                        }
-                    }
-
-                    // تراز کل
-                    Surface(
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Text(strings.netBalance, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = String.format(java.util.Locale.ENGLISH, "%,d", financialStats.netBalance) + " ت",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // دکمه اسکن و همگام‌سازی پیامک‌های بانکی صندوق
-                OutlinedButton(
-                    onClick = {
-                        if (!isScanningBankSms) {
-                            isScanningBankSms = true
-                            scope.launch {
-                                val count = bankRepo.scanAndImportHistoricalBankSms()
-                                isScanningBankSms = false
-                                val msg = if (strings.isFa) "$count تراکنش بانکی شناسایی و ثبت شد" else "$count bank transactions extracted"
-                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        if (isScanningBankSms) {
-                            if (strings.isFa) "در حال اسکن پیامک‌ها..." else "Scanning SMS..."
-                        } else strings.financialScan,
-                        fontSize = 12.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // فیلترهای تراکنش (همه، واریز، برداشت)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = selectedFilter == "ALL",
-                        onClick = { selectedFilter = "ALL" },
-                        label = { Text(strings.allTransactions + " (${allTransactions.size})", fontSize = 11.5.sp) }
-                    )
-                    FilterChip(
-                        selected = selectedFilter == "DEPOSIT",
-                        onClick = { selectedFilter = "DEPOSIT" },
-                        label = { Text(strings.deposits, fontSize = 11.5.sp) }
-                    )
-                    FilterChip(
-                        selected = selectedFilter == "WITHDRAWAL",
-                        onClick = { selectedFilter = "WITHDRAWAL" },
-                        label = { Text(strings.withdrawals, fontSize = 11.5.sp) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                if (filteredTransactions.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            strings.noTransactions,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    refreshList()
                 } else {
-                    LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
-                        items(filteredTransactions, key = { it.id }) { item ->
-                            val isDeposit = item.type == "DEPOSIT"
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = if (isDeposit) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFFEF4444).copy(alpha = 0.15f),
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = if (isDeposit) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
-                                                contentDescription = null,
-                                                tint = if (isDeposit) Color(0xFF059669) else Color(0xFFDC2626),
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            text = item.bankName + if (!item.cardNumber.isNullOrBlank()) " (${item.cardNumber})" else "",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = item.category,
-                                                fontSize = 11.sp,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = "• " + DateUtils.formatConversationDate(item.timestamp, isSolarCalendar),
-                                                fontSize = 10.5.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                                Column(horizontalAlignment = Alignment.End) {
-                                    val sign = if (isDeposit) "+" else "-"
-                                    val amountFormatted = String.format(java.util.Locale.ENGLISH, "%,d", item.amount)
-                                    Text(
-                                        text = "$sign$amountFormatted ${item.amountUnit}",
-                                        fontSize = 13.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isDeposit) Color(0xFF059669) else Color(0xFFDC2626)
-                                    )
-                                    if (item.balance != null) {
-                                        Text(
-                                            text = (if (strings.isFa) "مانده: " else "Bal: ") + String.format(java.util.Locale.ENGLISH, "%,d", item.balance) + " ت",
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f))
-                        }
-                    }
+                    Toast.makeText(context, strings.pinChangedSuccess, Toast.LENGTH_SHORT).show()
+                    refreshList()
                 }
+            },
+            onDismiss = {
+                pinDialogMode = null
+                pendingUnlockedConversation = null
+                conversationToLockUnlock = null
             }
-        }
+        )
     }
 
     // شیت نام‌گذاری و ادغام سرشماره‌ها
@@ -2309,6 +2199,7 @@ fun ConversationItem(
     onLongClick: () -> Unit
 ) {
     val isUnread = conversation.unreadCount > 0
+    val strings = LocalAppStrings.current
     val itemBg = if (isSelected) {
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
     } else {
@@ -2378,6 +2269,16 @@ fun ConversationItem(
                     modifier = Modifier.weight(1f, fill = false)
                 )
 
+                if (conversation.isLocked) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = "Locked",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+
                 if (conversation.mergedAddresses.size > 1) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Surface(
@@ -2408,32 +2309,42 @@ fun ConversationItem(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            val cleanSnippet = remember(conversation.snippet) {
-                conversation.snippet.replace(Regex("\\s+"), " ").trim()
-            }
-            val isRtl = remember(cleanSnippet) {
-                cleanSnippet.any { it in '\u0600'..'\u06FF' || it in '\uFB50'..'\uFDFF' || it in '\uFE70'..'\uFEFF' }
-            }
-            val layoutDir = LocalLayoutDirection.current
-            val textAlignment = if (isRtl) {
-                if (layoutDir == LayoutDirection.Rtl) TextAlign.Start else TextAlign.Right
-            } else {
-                TextAlign.Start
-            }
-
-            Text(
-                text = cleanSnippet,
-                color = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = if (isUnread) FontWeight.Medium else FontWeight.Normal,
-                fontSize = 13.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = textAlignment,
-                style = TextStyle(
-                    textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Content
+            if (conversation.isLocked) {
+                Text(
+                    text = strings.lockedMessage,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.sp,
+                    maxLines = 1
                 )
-            )
+            } else {
+                val cleanSnippet = remember(conversation.snippet) {
+                    conversation.snippet.replace(Regex("\\s+"), " ").trim()
+                }
+                val isRtl = remember(cleanSnippet) {
+                    cleanSnippet.any { it in '\u0600'..'\u06FF' || it in '\uFB50'..'\uFDFF' || it in '\uFE70'..'\uFEFF' }
+                }
+                val layoutDir = LocalLayoutDirection.current
+                val textAlignment = if (isRtl) {
+                    if (layoutDir == LayoutDirection.Rtl) TextAlign.Start else TextAlign.Right
+                } else {
+                    TextAlign.Start
+                }
+
+                Text(
+                    text = cleanSnippet,
+                    color = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (isUnread) FontWeight.Medium else FontWeight.Normal,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = textAlignment,
+                    style = TextStyle(
+                        textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Content
+                    )
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(10.dp))

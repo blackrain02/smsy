@@ -37,11 +37,13 @@ class SmsRepository(private val context: Context) {
     private val readThreadsPrefs = context.getSharedPreferences("smsy_read_threads", Context.MODE_PRIVATE)
     private val aliasRepo = SenderAliasRepository(context)
     private val blocklistRepo = BlocklistRepository(context)
+    private val securityRepo = SecurityRepository(context)
     private val recentlyReadKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val repoScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     val aliasRepository: SenderAliasRepository get() = aliasRepo
     val blocklistRepository: BlocklistRepository get() = blocklistRepo
+    val securityRepository: SecurityRepository get() = securityRepo
 
     fun markKeyAsReadInMemory(address: String, mergedAddresses: Set<String> = emptySet(), aliasId: String? = null) {
         val keys = mutableSetOf<String>()
@@ -353,6 +355,10 @@ class SmsRepository(private val context: Context) {
                                 blockedSenders.contains(nLower) || (nNorm.isNotEmpty() && blockedSenders.contains(nNorm))
                             } == true)
 
+                        val isLocked = securityRepo.isConversationLocked(
+                            securityRepo.getLockKey(address, matchedAlias?.id)
+                        )
+
                         list.add(
                             Conversation(
                                 threadId = threadId,
@@ -365,7 +371,8 @@ class SmsRepository(private val context: Context) {
                                 mergedAddresses = matchedAlias?.numbers ?: emptySet(),
                                 aliasId = matchedAlias?.id,
                                 subId = subId,
-                                isBlocked = isBlocked
+                                isBlocked = isBlocked,
+                                isLocked = isLocked
                             )
                         )
                     }

@@ -31,11 +31,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
         when (action) {
             NotificationHelper.ACTION_MARK_READ -> {
-                if (notificationId != -1) {
-                    notificationManager.cancel(notificationId)
-                }
                 if (sender.isNotBlank()) {
-                    notificationManager.cancel(sender.hashCode())
+                    NotificationHelper.cancelForSender(context, sender)
+                } else if (notificationId != -1) {
+                    notificationManager.cancel(notificationId)
                 }
                 val smsRepo = SmsRepository(context)
                 smsRepo.markThreadAsReadAsync(threadId, sender)
@@ -49,10 +48,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     scope.launch {
                         val success = smsRepo.sendMessage(sender, replyText)
                         smsRepo.markThreadAsReadAsync(threadId, sender)
-                        if (notificationId != -1) {
-                            notificationManager.cancel(notificationId)
-                        }
-                        notificationManager.cancel(sender.hashCode())
+                        NotificationHelper.cancelForSender(context, sender)
                     }
                 }
             }

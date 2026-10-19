@@ -7,16 +7,23 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import androidx.core.app.RemoteInput
+import com.blackrain02.spamguard.data.repository.SecurityRepository
+import com.blackrain02.spamguard.data.repository.SenderAliasRepository
 import com.blackrain02.spamguard.receiver.NotificationActionReceiver
 import com.blackrain02.spamguard.ui.MainActivity
 import com.blackrain02.spamguard.ui.theme.AppLanguage
 import com.blackrain02.spamguard.ui.theme.ThemePreferences
 import com.blackrain02.spamguard.ui.util.OtpHelper
+import java.util.concurrent.ConcurrentHashMap
 
 object NotificationHelper {
     const val CHANNEL_MESSAGES_ID = "channel_clean_messages"
     const val CHANNEL_MESSAGES_NAME = "پیام‌های ورودی"
+
+    const val APP_NOTIFICATION_GROUP = "com.blackrain02.spamguard.SMS_GROUP"
+    const val GROUP_SUMMARY_ID = 99999
 
     const val ACTION_MARK_READ = "com.blackrain02.spamguard.ACTION_MARK_READ"
     const val ACTION_REPLY = "com.blackrain02.spamguard.ACTION_REPLY"
@@ -26,6 +33,13 @@ object NotificationHelper {
     const val EXTRA_THREAD_ID = "extra_thread_id"
     const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
     const val EXTRA_OTP_CODE = "extra_otp_code"
+
+    // تاریخچه پیام‌های خوانده‌نشده هر سرشماره جهت استک شدن زیر هم با NotificationCompat.MessagingStyle
+    private val recentMessagesPerSender = ConcurrentHashMap<String, MutableList<Pair<String, Long>>>()
+
+    fun getNotificationId(sender: String): Int {
+        return (Math.abs(sender.trim().hashCode()) % 80000) + 1000
+    }
 
     fun createChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -43,90 +57,158 @@ object NotificationHelper {
         }
     }
 
-    fun showMessageNotification(context: Context, sender: String, body: String, threadId: Long = -1L) {
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            putExtra("sender", sender)
+    /**
+     * بستن و حذف تمام اعلان‌های برنامه با باز شدن برنامه یا خوانده‌شدن کامل
+     */
+    fun cancelAll(context: Context) {
+        try {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.cancelAll()
+            recentMessagesPerSender.clear()
+        } catch (e: Throwable) {
+            e.printStackTrace()
         }
+    }
+
+    /**
+     * بستن اعلان‌های یک سرشماره مشخص هنگام باز کردن چت آن
+     */
+    fun cancelForSender(context: Context, sender: String) {
+        try {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.cancel(getNotificationId(sender))
+            recentMessagesPerSender.remove(sender)
+            if (recentMessagesPerSender.isEmpty()) {
+                manager.cancel(GROUP_SUMMARY_ID)
+            }
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
+
+    fun showMessageNotification(context: Context, sender: String, body: String, threadId: Long = -1L) {
+        ThemePreferences.init(context)
+        val isFa = ThemePreferences.currentLanguage.value == AppLanguage.FA
+
+        // ۱. بررسی حریم خصوصی و قفل بودن گفتگو
+        val securityRepo = SecurityRepository(context)
+        val aliasRepo = SenderAliasRepository(context)
+        val alias = aliasRepo.getAliasForAddress(sender)
+        val lockKey = securityRepo.getLockKey(sender, alias?.id)
+        val isLocked = securityRepo.isConversationLocked(lockKey)
+
+        val displaySender = alias?.displayName ?: sender
+        val displayBody = if (isLocked) {
+            if (isFa) "پیام جدید دریافت شد (قفل شده)" else "New message received (Locked)"
+        } else {
+            body
+        }
+
+        // ۲. تجمیع پیامک‌های این سرشماره جهت استک شدن در MessagingStyle
+        val senderList = recentMessagesPerSender.getOrPut(sender) { mutableListOf() }
+        synchronized(senderList) {
+            senderList.add(displayBody to System.currentTimeMillis())
+            if (senderList.size > 20) {
+                senderList.removeAt(0)
+            }
+        }
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("sender", sender)
+            putExtra("address", sender)
+            if (threadId != -1L) {
+                putExtra("thread_id", threadId)
+            }
+        }
+        val notificationId = getNotificationId(sender)
         val pendingIntent = PendingIntent.getActivity(
             context,
-            sender.hashCode(),
+            notificationId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val groupKey = "sms_group_" + sender.trim()
-        val summaryId = sender.hashCode()
-        val messageId = (System.currentTimeMillis() % 1000000000).toInt()
+        val userPerson = Person.Builder().setName("Me").build()
+        val senderPerson = Person.Builder().setName(displaySender).build()
+        val messagingStyle = NotificationCompat.MessagingStyle(userPerson)
+            .setConversationTitle(displaySender)
+            .setGroupConversation(false)
+
+        synchronized(senderList) {
+            for (item in senderList) {
+                messagingStyle.addMessage(item.first, item.second, senderPerson)
+            }
+        }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_email)
-            .setContentTitle(sender)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setGroup(groupKey)
+            .setContentTitle(displaySender)
+            .setContentText(displayBody)
+            .setStyle(messagingStyle)
+            .setGroup(APP_NOTIFICATION_GROUP)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
-        ThemePreferences.init(context)
-        val isFa = ThemePreferences.currentLanguage.value == AppLanguage.FA
-
-        // ۱. اکشن هوشمند کپی رمز یک‌بارمصرف (در صورت تشخیص OTP)
-        val otpCode = OtpHelper.extractOtp(body)
-        if (otpCode != null) {
-            val copyOtpIntent = Intent(context, NotificationActionReceiver::class.java).apply {
-                action = ACTION_COPY_OTP
-                putExtra(EXTRA_OTP_CODE, otpCode)
-                putExtra(EXTRA_NOTIFICATION_ID, messageId)
+        // فقط در صورتی که قفل نباشد اکشن‌های کپی رمز و پاسخ سریع اضافه شود
+        if (!isLocked) {
+            val otpCode = OtpHelper.extractOtp(body)
+            if (otpCode != null) {
+                val copyOtpIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+                    action = ACTION_COPY_OTP
+                    putExtra(EXTRA_OTP_CODE, otpCode)
+                    putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+                }
+                val copyOtpPending = PendingIntent.getBroadcast(
+                    context,
+                    notificationId + 1,
+                    copyOtpIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                builder.addAction(
+                    android.R.drawable.ic_menu_save,
+                    if (isFa) "کپی کد $otpCode" else "Copy Code $otpCode",
+                    copyOtpPending
+                )
             }
-            val copyOtpPending = PendingIntent.getBroadcast(
+
+            // Inline Reply
+            val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
+                .setLabel(if (isFa) "پاسخ..." else "Reply...")
+                .build()
+            val replyIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+                action = ACTION_REPLY
+                putExtra(EXTRA_SENDER, sender)
+                putExtra(EXTRA_THREAD_ID, threadId)
+                putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            }
+            val replyPendingIntent = PendingIntent.getBroadcast(
                 context,
-                messageId + 1,
-                copyOtpIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                notificationId + 2,
+                replyIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
             )
-            builder.addAction(
-                android.R.drawable.ic_menu_save,
-                if (isFa) "کپی کد $otpCode" else "Copy Code $otpCode",
-                copyOtpPending
-            )
+            val replyAction = NotificationCompat.Action.Builder(
+                android.R.drawable.ic_menu_send,
+                if (isFa) "پاسخ" else "Reply",
+                replyPendingIntent
+            ).addRemoteInput(remoteInput).build()
+            builder.addAction(replyAction)
         }
 
-        // ۲. اکشن پاسخ مستقیم (Inline Reply)
-        val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
-            .setLabel(if (isFa) "پاسخ..." else "Reply...")
-            .build()
-        val replyIntent = Intent(context, NotificationActionReceiver::class.java).apply {
-            action = ACTION_REPLY
-            putExtra(EXTRA_SENDER, sender)
-            putExtra(EXTRA_THREAD_ID, threadId)
-            putExtra(EXTRA_NOTIFICATION_ID, messageId)
-        }
-        val replyPendingIntent = PendingIntent.getBroadcast(
-            context,
-            messageId + 2,
-            replyIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
-        )
-        val replyAction = NotificationCompat.Action.Builder(
-            android.R.drawable.ic_menu_send,
-            if (isFa) "پاسخ" else "Reply",
-            replyPendingIntent
-        ).addRemoteInput(remoteInput).build()
-        builder.addAction(replyAction)
-
-        // ۳. اکشن علامت‌گذاری به عنوان خوانده‌شده (Mark as Read)
+        // Action Mark Read
         val markReadIntent = Intent(context, NotificationActionReceiver::class.java).apply {
             action = ACTION_MARK_READ
             putExtra(EXTRA_SENDER, sender)
             putExtra(EXTRA_THREAD_ID, threadId)
-            putExtra(EXTRA_NOTIFICATION_ID, messageId)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
         }
         val markReadPendingIntent = PendingIntent.getBroadcast(
             context,
-            messageId + 3,
+            notificationId + 3,
             markReadIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -136,22 +218,21 @@ object NotificationHelper {
             markReadPendingIntent
         )
 
-        // اعلان تجمیعی سرشماره جهت گروه‌بندی خودکار در پنل اعلان‌ها
+        // اعلان خلاصه گروه سراسری برنامه (تضمین تجمیع تمام نوتیفیکیشن‌ها زیر یک عنوان و دسته در سیستم‌عامل)
         val summaryNotification = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_email)
-            .setContentTitle(sender)
-            .setContentText(body)
-            .setStyle(NotificationCompat.InboxStyle().setSummaryText(sender))
-            .setGroup(groupKey)
+            .setContentTitle("Smsy")
+            .setContentText(if (isFa) "پیام‌های ورودی جدید" else "New incoming messages")
+            .setGroup(APP_NOTIFICATION_GROUP)
             .setGroupSummary(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
 
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         try {
-            manager.notify(messageId, builder.build())
-            manager.notify(summaryId, summaryNotification)
+            manager.notify(notificationId, builder.build())
+            manager.notify(GROUP_SUMMARY_ID, summaryNotification)
         } catch (e: Throwable) {
             e.printStackTrace()
         }

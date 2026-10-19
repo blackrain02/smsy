@@ -14,5 +14,6 @@ data class Conversation(
     val mergedAddresses: Set<String> = emptySet(),
     val aliasId: String? = null,
     val subId: Int? = null,
-    val isBlocked: Boolean = false
+    val isBlocked: Boolean = false,
+    val isLocked: Boolean = false
 )

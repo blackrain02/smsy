@@ -102,6 +102,28 @@ class AppStrings(val lang: AppLanguage) {
     val eventDetected = if (isFa) "رویداد / سررسید" else "Event / Due Date"
     val addToCalendar = if (isFa) "افزودن به تقویم" else "Add to Calendar"
     val smartReplies = if (isFa) "پاسخ‌های پیشنهادی هوشمند" else "Smart Replies"
+
+    // PIN & Security & Finance Tab
+    val navFinance = if (isFa) "حسابداری مالی" else "Finance"
+    val lockConversation = if (isFa) "قفل گفتگو با رمز" else "Lock conversation"
+    val unlockConversation = if (isFa) "باز کردن قفل گفتگو" else "Unlock conversation"
+    val lockedMessage = if (isFa) "گفتگوی قفل شده" else "Locked conversation"
+    val lockedNotification = if (isFa) "پیام جدید دریافت شد (قفل شده)" else "New message received (Locked)"
+    val enterPinTitle = if (isFa) "ورود رمز عبور ۴ رقمی" else "Enter 4-Digit PIN"
+    val setPinTitle = if (isFa) "تعیین رمز عبور ۴ رقمی" else "Set 4-Digit PIN"
+    val confirmPinTitle = if (isFa) "تکرار رمز عبور" else "Confirm PIN"
+    val pinIncorrect = if (isFa) "رمز عبور نادرست است" else "Incorrect PIN"
+    val pinMismatch = if (isFa) "رمزهای عبور یکسان نیستند" else "PINs do not match"
+    val pinPromptFinance = if (isFa) "برای دسترسی به بخش مالی، رمز عبور ۴ رقمی را وارد کنید" else "Enter 4-digit PIN to access Financial Dashboard"
+    val pinPromptChat = if (isFa) "برای مشاهده این گفتگو، رمز عبور را وارد کنید" else "Enter PIN to access this conversation"
+    val pinPromptSetFirst = if (isFa) "لطفاً ابتدا یک رمز ۴ رقمی برای محافظت از داده‌ها تعیین کنید" else "Please set a 4-digit PIN first to protect your data"
+    val securitySettings = if (isFa) "امنیت و رمز عبور (PIN)" else "Security & PIN Lock"
+    val changePin = if (isFa) "تغییر رمز عبور" else "Change PIN"
+    val removePin = if (isFa) "حذف رمز عبور" else "Remove PIN"
+    val pinChangedSuccess = if (isFa) "رمز عبور با موفقیت به‌روزرسانی شد" else "PIN updated successfully"
+    val pinRemovedSuccess = if (isFa) "رمز عبور و قفل‌ها حذف شدند" else "PIN and locks removed"
+    val conversationLockedSuccess = if (isFa) "گفتگو با موفقیت قفل شد" else "Conversation locked successfully"
+    val conversationUnlockedSuccess = if (isFa) "قفل گفتگو باز شد" else "Conversation unlocked"
 }
 
 val LocalAppStrings = staticCompositionLocalOf { AppStrings(AppLanguage.EN) }
