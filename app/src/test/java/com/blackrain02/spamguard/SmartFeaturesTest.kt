@@ -69,6 +69,53 @@ class SmartFeaturesTest {
         assertNull(BankSmsParser.parse("Saman", otpSms, 1729000000000L))
     }
 
+    @Test
+    fun testBluBankRealMessages() {
+        // ۱. واریز پول واقعی بلوبانک
+        val depositSms = "بلو\nواریز پول\nجواد عزیز،250,000,000 ریال به حساب شما نشست.\nموجودی: 1,381,890,785 ریال\n۸:۳۹\n۱۴۰۵.۰۷.۲۸"
+        assertTrue(BankSmsParser.isBankMessage("+989999987641", depositSms))
+        val dep = BankSmsParser.parse("+989999987641", depositSms, 1792472974000L)
+        assertNotNull(dep)
+        assertEquals("بلوبانک", dep!!.bankName)
+        assertEquals("DEPOSIT", dep.type)
+        assertEquals(25_000_000L, dep.amount)
+        assertEquals(138_189_078L, dep.balance)
+
+        // ۲. برداشت پول واقعی بلوبانک (از حساب شما پرید)
+        val withdrawSms = "بلو\nبرداشت پول\nجواد عزیز، 401,190ریال از حساب شما پرید.\nموجودی: 1,131,890,785 ریال\n۲۰:۳۹\n۱۴۰۵.۰۷.۲۷"
+        assertTrue(BankSmsParser.isBankMessage("+989999987641", withdrawSms))
+        val with = BankSmsParser.parse("+989999987641", withdrawSms, 1792429772000L)
+        assertNotNull(with)
+        assertEquals("بلوبانک", with!!.bankName)
+        assertEquals("WITHDRAWAL", with.type)
+        assertEquals(40_119L, with.amount)
+        assertEquals(113_189_078L, with.balance)
+
+        // ۳. پرداخت قبض بلوبانک
+        val billSms = "بلو\nپرداخت قبض\nجواد عزیز، 1,473,000 ریال بابت پرداخت قبض تلفن همراه از حساب شما پرید.\nموجودی: 1,132,291,975 ریال\n۱۹:۵۶\n۱۴۰۵.۰۷.۲۷"
+        assertTrue(BankSmsParser.isBankMessage("+989999987641", billSms))
+        val bill = BankSmsParser.parse("+989999987641", billSms, 1792427203000L)
+        assertNotNull(bill)
+        assertEquals("بلوبانک", bill!!.bankName)
+        assertEquals("WITHDRAWAL", bill.type)
+        assertEquals(147_300L, bill.amount)
+        assertEquals("قبوض و خدمات", bill.category)
+
+        // ۴. پاسارگاد مثبت و منفی
+        val pasargadPlus = "بانک پاسارگاد\n+ 5,000,000 ریال\nموجودی: 20,000,000 ریال"
+        val pasPlus = BankSmsParser.parse("pasargad", pasargadPlus, 1729000000000L)
+        assertNotNull(pasPlus)
+        assertEquals("DEPOSIT", pasPlus!!.type)
+        assertEquals(500_000L, pasPlus.amount)
+
+        // ۵. بانک ملی بستانکار و بدهکار
+        val melliCredit = "بانک ملی\nحساب 010... بستانکار\nمبلغ: 10,000,000 ریال\nمانده: 50,000,000 ریال"
+        val mCredit = BankSmsParser.parse("BMI", melliCredit, 1729000000000L)
+        assertNotNull(mCredit)
+        assertEquals("DEPOSIT", mCredit!!.type)
+        assertEquals(1_000_000L, mCredit.amount)
+    }
+
     // ۴. تست استخراج رویداد سررسید چک و تاریخ شمسی (Feature 3)
     @Test
     fun testSmartEventExtractorCheckDeadline() {

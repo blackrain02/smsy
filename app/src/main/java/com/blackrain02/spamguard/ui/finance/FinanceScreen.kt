@@ -41,6 +41,10 @@ fun FinanceScreen(
     var selectedFilter by remember { mutableStateOf("ALL") }
     var isScanning by remember { mutableStateOf(false) }
 
+    LaunchedEffect(Unit) {
+        bankRepo.cleanupDuplicates()
+    }
+
     val activeTransactions = remember(allTransactions, isDecoy) {
         if (isDecoy) emptyList() else allTransactions
     }
@@ -97,11 +101,12 @@ fun FinanceScreen(
                                 scope.launch {
                                     val count = bankRepo.scanAndImportHistoricalBankSms()
                                     isScanning = false
-                                    Toast.makeText(
-                                        context,
-                                        if (strings.isFa) "$count تراکنش بانکی جدید با موفقیت شناسایی و ثبت شد" else "$count new transactions imported",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                    val msg = if (strings.isFa) {
+                                        if (count > 0) "$count تراکنش بانکی جدید با موفقیت شناسایی و ثبت شد" else "همه تراکنش‌ها همگام هستند (مورد جدیدی یافت نشد)"
+                                    } else {
+                                        if (count > 0) "$count new transactions imported" else "Everything is up to date"
+                                    }
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }) {

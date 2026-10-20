@@ -46,16 +46,24 @@ class BankTransactionRepository(private val context: Context) {
         }
     }
 
+    suspend fun cleanupDuplicates(): Int = withContext(Dispatchers.IO) {
+        dao.purgeDuplicates()
+    }
+
     suspend fun recordIfBankMessage(sender: String?, body: String?, timestamp: Long): Boolean = withContext(Dispatchers.IO) {
+        if (body.isNullOrBlank()) return@withContext false
+        if (dao.exists(timestamp, body) > 0) return@withContext false
         val parsed = BankSmsParser.parse(sender, body, timestamp) ?: return@withContext false
         dao.insert(parsed)
         true
     }
 
     /**
-     * اسکن یکباره صندوق دریافت برای استخراج و بایگانی تمام پیامک‌های بانکی گذشته
+     * اسکن یکباره صندوق دریافت برای استخراج و بایگانی تمام پیامک‌های بانکی گذشته بدون ثبت رکوردهای تکراری
      */
     suspend fun scanAndImportHistoricalBankSms(): Int = withContext(Dispatchers.IO) {
+        dao.purgeDuplicates()
+
         val cursor = context.contentResolver.query(
             Uri.parse("content://sms/inbox"),
             arrayOf("_id", "address", "body", "date"),
@@ -64,7 +72,9 @@ class BankTransactionRepository(private val context: Context) {
             "date DESC LIMIT 500"
         ) ?: return@withContext 0
 
+        val existingSignatures = dao.getAllSignatures().toHashSet()
         val listToInsert = mutableListOf<BankTransactionEntity>()
+
         cursor.use { c ->
             val addressIdx = c.getColumnIndex("address")
             val bodyIdx = c.getColumnIndex("body")
@@ -75,9 +85,15 @@ class BankTransactionRepository(private val context: Context) {
                 val body = if (bodyIdx >= 0) c.getString(bodyIdx) else ""
                 val date = if (dateIdx >= 0) c.getLong(dateIdx) else System.currentTimeMillis()
 
+                val sig = "${date}___${body}"
+                if (sig in existingSignatures) {
+                    continue
+                }
+
                 val parsed = BankSmsParser.parse(address, body, date)
                 if (parsed != null) {
                     listToInsert.add(parsed)
+                    existingSignatures.add(sig)
                 }
             }
         }

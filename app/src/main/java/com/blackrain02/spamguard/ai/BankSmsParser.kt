@@ -11,27 +11,31 @@ object BankSmsParser {
 
     private val BANK_KEYWORDS = listOf(
         "بانک", "واریز", "برداشت", "مانده", "موجودی", "حساب", "کارت",
-        "پایا", "ساتنا", "شبا", "شاپرک", "بلوبانک", "بانکینو", "رمز پویا"
+        "پایا", "ساتنا", "شبا", "شاپرک", "بلوبانک", "بانکینو", "ویپاد", "رمز پویا"
     )
 
     private val KNOWN_BANKS = listOf(
-        "بلوبانک" to listOf("بلوبانک", "blubank", "بلو بانک"),
-        "بانک ملت" to listOf("بانک ملت", "mellat", "ملت"),
-        "بانک ملی" to listOf("بانک ملی", "melli", "ملی ایران"),
-        "بانک صادرات" to listOf("بانک صادرات", "saderat", "صادرات"),
+        "بلوبانک" to listOf("بلوبانک", "blubank", "بلو بانک", "بلو\n", "بلو "),
+        "بانک ملت" to listOf("بانک ملت", "mellat", "ملت", "bankmellat"),
+        "بانک ملی" to listOf("بانک ملی", "melli", "ملی ایران", "bmi"),
+        "بانک صادرات" to listOf("بانک صادرات", "saderat", "صادرات", "bsi"),
         "بانک تجارت" to listOf("بانک تجارت", "tejarat", "تجارت"),
         "بانک سامان" to listOf("بانک سامان", "saman", "سامان"),
         "بانک پارسیان" to listOf("بانک پارسیان", "parsian", "پارسیان"),
-        "بانک پاسارگاد" to listOf("بانک پاسارگاد", "pasargad", "پاسارگاد"),
-        "بانک سپه" to listOf("بانک سپه", "sepah", "سپه", "انصار", "قوامین"),
+        "بانک پاسارگاد" to listOf("بانک پاسارگاد", "pasargad", "پاسارگاد", "bpi"),
+        "بانک سپه" to listOf("بانک سپه", "sepah", "سپه", "انصار", "قوامین", "حکمت", "کوثر", "مهر اقتصاد"),
         "بانک مسکن" to listOf("بانک مسکن", "maskan", "مسکن"),
-        "بانک کشاورزی" to listOf("بانک کشاورزی", "keshavarzi", "کشاورزی"),
-        "بانک رفاه" to listOf("بانک رفاه", "refah", "رفاه کارگران"),
+        "بانک کشاورزی" to listOf("بانک کشاورزی", "keshavarzi", "کشاورزی", "bki"),
+        "بانک رفاه" to listOf("بانک رفاه", "refah", "رفاه کارگران", "رفاه"),
         "بانک رسالت" to listOf("بانک رسالت", "resalat", "رسالت"),
-        "بانک مهر ایران" to listOf("مهر ایران", "qmb", "قرض الحسنه مهر"),
+        "بانک مهر ایران" to listOf("مهر ایران", "qmb", "قرض الحسنه مهر", "مهرایران"),
         "بانک شهر" to listOf("بانک شهر", "shahr", "شهر"),
         "بانک آینده" to listOf("بانک آینده", "ayandeh", "آینده"),
-        "بانک دی" to listOf("بانک دی", "day", "دی")
+        "بانک دی" to listOf("بانک دی", "day", "دی"),
+        "ویپاد" to listOf("ویپاد", "wepod"),
+        "بانک خاورمیانه" to listOf("خاورمیانه", "middleeast"),
+        "بانک سینا" to listOf("بانک سینا", "sina", "سینا"),
+        "پست بانک" to listOf("پست بانک", "postbank", "پست‌بانک")
     )
 
     /**
@@ -43,15 +47,22 @@ object BankSmsParser {
         val b = body.lowercase()
 
         // استثنا: پیامک‌های حاوی صرفاً رمز پویا تراکنش نیستند
-        if ((b.contains("رمز") || b.contains("کد")) && !b.contains("واریز") && !b.contains("برداشت") && !b.contains("مانده")) {
+        if ((b.contains("رمز") || b.contains("کد")) &&
+            !b.contains("واریز") && !b.contains("برداشت") && !b.contains("مانده") &&
+            !b.contains("نشست") && !b.contains("پرید") && !b.contains("موجودی")
+        ) {
             return false
         }
 
         val hasSenderMatch = KNOWN_BANKS.any { (_, aliases) -> aliases.any { s.contains(it) } }
-        val hasBankKeyword = (b.contains("واریز") || b.contains("برداشت") || b.contains("خرید") || b.contains("کسر")) &&
-                (b.contains("مبلغ") || b.contains("ریال") || b.contains("تومان") || b.contains("مانده") || b.contains("موجودی"))
+        val hasBankAction = b.contains("واریز") || b.contains("برداشت") || b.contains("خرید") ||
+                b.contains("کسر") || b.contains("نشست") || b.contains("پرید") ||
+                b.contains("بستانکار") || b.contains("بدهکار") || b.contains("پرداخت") ||
+                b.contains("انتقال وجه") || b.contains("افزایش موجودی") || b.contains("کاهش موجودی")
+        val hasFinancialContext = b.contains("مبلغ") || b.contains("ریال") || b.contains("تومان") ||
+                b.contains("مانده") || b.contains("موجودی") || b.contains("حساب") || b.contains("کارت")
 
-        return hasSenderMatch || hasBankKeyword
+        return hasSenderMatch || (hasBankAction && hasFinancialContext)
     }
 
     /**
@@ -85,18 +96,49 @@ object BankSmsParser {
 
     private fun detectBankName(sender: String?, body: String): String {
         val s = (sender ?: "").lowercase()
+        val b = body.lowercase()
         for ((name, aliases) in KNOWN_BANKS) {
-            if (aliases.any { s.contains(it) || body.contains(it, ignoreCase = true) }) {
+            if (aliases.any { s.contains(it) || b.contains(it) }) {
                 return name
             }
+        }
+        if (b.startsWith("بلو\n") || b.startsWith("بلو ") || b.startsWith("بلو:")) {
+            return "بلوبانک"
         }
         return "بانک"
     }
 
-    private fun detectTransactionType(body: String): String {
+    fun detectTransactionType(body: String): String {
+        val b = body.replace(",", "").replace("،", "").lowercase()
+
+        val isDeposit = b.contains("واریز") ||
+                b.contains("نشست") || // بلوبانک: به حساب شما نشست
+                b.contains("بستانکار") ||
+                b.contains("افزایش موجودی") ||
+                b.contains("انتقال به حساب") ||
+                b.contains("دریافت وجه") ||
+                Regex("""\+\s*[0-9]{3,}""").containsMatchIn(b)
+
+        val isWithdrawal = b.contains("برداشت") ||
+                b.contains("پرید") || // بلوبانک: از حساب شما پرید
+                b.contains("بدهکار") ||
+                b.contains("کاهش موجودی") ||
+                b.contains("خرید") ||
+                b.contains("کسر") ||
+                b.contains("پرداخت") || // پرداخت قبض، پرداخت صورتحساب
+                b.contains("کارمزد") ||
+                b.contains("انتقال از") ||
+                Regex("""-\s*[0-9]{3,}""").containsMatchIn(b)
+
         return when {
-            body.contains("واریز") || body.contains("افزایش موجودی") || body.contains("انتقال به حساب") -> "DEPOSIT"
-            body.contains("برداشت") || body.contains("خرید") || body.contains("کسر") || body.contains("انتقال از") || body.contains("انتقال وجه") -> "WITHDRAWAL"
+            isDeposit && !isWithdrawal -> "DEPOSIT"
+            isWithdrawal && !isDeposit -> "WITHDRAWAL"
+            // در صورت وجود هر دو (مثل "انتقال وجه از ... به حساب شما نشست"):
+            b.contains("به حساب شما نشست") || b.contains("نشست.") || b.contains("واریز پول") -> "DEPOSIT"
+            b.contains("از حساب شما پرید") || b.contains("پرید.") || b.contains("برداشت پول") -> "WITHDRAWAL"
+            isDeposit -> "DEPOSIT"
+            isWithdrawal -> "WITHDRAWAL"
+            b.contains("انتقال وجه") || b.contains("انتقال") -> "WITHDRAWAL"
             else -> "OTHER"
         }
     }
@@ -106,18 +148,20 @@ object BankSmsParser {
         val clean = body.replace(",", "").replace("،", "")
 
         val patterns = listOf(
-            Regex("""(?i)(?:مبلغ|برداشت|واریز|خرید|کسر|انتقال)[\s:]*([0-9]{3,12})\b"""),
+            Regex("""(?i)(?:مبلغ|برداشت|واریز|خرید|کسر|پرداخت|بستانکار|بدهکار)[\s:]*([0-9]{3,12})\b"""),
+            Regex("""([0-9]{3,12})\s*(?:ریال|تومان)\s*(?:به حساب شما نشست|از حساب شما پرید|بابت)"""),
             Regex("""([0-9]{3,12})\s*(?:ریال|تومان)"""),
-            Regex("""(?i)(?:مبلغ|انتقال وجه)[\s:]*([0-9]{3,12})""")
+            Regex("""(?i)(?:[+-])\s*([0-9]{3,12})\b""")
         )
 
+        val nonBalanceLines = clean.lines().filter { !it.contains("مانده") && !it.contains("موجودی") }.joinToString(" ")
+
         for (pattern in patterns) {
-            val match = pattern.find(clean)
+            val match = pattern.find(nonBalanceLines) ?: pattern.find(clean)
             if (match != null) {
                 val rawNumber = match.groupValues[1].toLongOrNull() ?: continue
                 if (rawNumber > 0) {
                     return if (isRial) {
-                        // تبدیل ریال به تومان جهت یکپارچگی تحلیل مالی
                         (rawNumber / 10L) to "تومان"
                     } else {
                         rawNumber to "تومان"

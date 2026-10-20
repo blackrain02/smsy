@@ -23,6 +23,22 @@ interface BankTransactionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(transactions: List<BankTransactionEntity>)
 
+    @Query("SELECT COUNT(*) FROM bank_transactions WHERE timestamp = :timestamp AND rawBody = :rawBody")
+    suspend fun exists(timestamp: Long, rawBody: String): Int
+
+    @Query("SELECT timestamp || '___' || rawBody FROM bank_transactions")
+    suspend fun getAllSignatures(): List<String>
+
+    @Query("""
+        DELETE FROM bank_transactions 
+        WHERE id NOT IN (
+            SELECT MIN(id) 
+            FROM bank_transactions 
+            GROUP BY timestamp, rawBody
+        )
+    """)
+    suspend fun purgeDuplicates(): Int
+
     @Query("DELETE FROM bank_transactions WHERE id = :id")
     suspend fun deleteById(id: Long)
 
