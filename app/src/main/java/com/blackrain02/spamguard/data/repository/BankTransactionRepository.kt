@@ -65,6 +65,9 @@ class BankTransactionRepository(private val context: Context) {
             val reparsed = BankSmsParser.parse(null, item.rawBody, item.timestamp)
             if (reparsed != null) {
                 toUpdate.add(reparsed.copy(id = item.id))
+            } else {
+                // پاکسازی مواردی که طبق فیلتر جدید تراکنش نیستند (مثل قبض، پیامک‌های تبلیغاتی وام یا هرزنامه)
+                dao.deleteById(item.id)
             }
         }
         if (toUpdate.isNotEmpty()) {
@@ -75,6 +78,8 @@ class BankTransactionRepository(private val context: Context) {
 
     suspend fun recordIfBankMessage(sender: String?, body: String?, timestamp: Long): Boolean = withContext(Dispatchers.IO) {
         if (body.isNullOrBlank()) return@withContext false
+        val bankSenderRepo = BankSenderRepository(context)
+        if (!bankSenderRepo.isBankSender(sender)) return@withContext false
         if (dao.exists(timestamp, body) > 0) return@withContext false
         val parsed = BankSmsParser.parse(sender, body, timestamp) ?: return@withContext false
         dao.insert(parsed)
@@ -82,7 +87,7 @@ class BankTransactionRepository(private val context: Context) {
     }
 
     /**
-     * اسکن یکباره صندوق دریافت برای استخراج و بایگانی تمام پیامک‌های بانکی گذشته بدون ثبت رکوردهای تکراری
+     * اسکن یکباره صندوق دریافت برای استخراج و بایگانی پیامک‌های سرشماره‌های بانکی منتخب
      */
     suspend fun scanAndImportHistoricalBankSms(): Int = withContext(Dispatchers.IO) {
         dao.purgeDuplicates()
@@ -95,6 +100,7 @@ class BankTransactionRepository(private val context: Context) {
             "date DESC LIMIT 500"
         ) ?: return@withContext 0
 
+        val bankSenderRepo = BankSenderRepository(context)
         val existingSignatures = dao.getAllSignatures().toHashSet()
         val listToInsert = mutableListOf<BankTransactionEntity>()
 
@@ -107,6 +113,11 @@ class BankTransactionRepository(private val context: Context) {
                 val address = if (addressIdx >= 0) c.getString(addressIdx) else ""
                 val body = if (bodyIdx >= 0) c.getString(bodyIdx) else ""
                 val date = if (dateIdx >= 0) c.getLong(dateIdx) else System.currentTimeMillis()
+
+                // فقط پیامک‌های سرشماره‌ها یا نام‌های تعیین‌شده بانکی بررسی شوند
+                if (!bankSenderRepo.isBankSender(address)) {
+                    continue
+                }
 
                 val sig = "${date}___${body}"
                 if (sig in existingSignatures) {
@@ -125,6 +136,11 @@ class BankTransactionRepository(private val context: Context) {
             dao.insertAll(listToInsert)
         }
         listToInsert.size
+    }
+
+    suspend fun clearAllAndRescan(): Int = withContext(Dispatchers.IO) {
+        dao.deleteAll()
+        scanAndImportHistoricalBankSms()
     }
 
     suspend fun deleteTransaction(id: Long) = withContext(Dispatchers.IO) {

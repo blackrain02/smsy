@@ -38,6 +38,21 @@ object BankSmsParser {
         "پست بانک" to listOf("پست بانک", "postbank", "پست‌بانک")
     )
 
+    private val PROMOTIONAL_KEYWORDS = listOf(
+        "پیشنهاد وام", "درخواست وام", "تسهیلات", "بدون ضامن", "ثبت نام وام",
+        "افتتاح حساب", "امتیاز وام", "فرصت استثنایی", "برنده شوید", "برنده شدید",
+        "جایزه", "قرعه کشی", "قرعه‌کشی", "کد هدیه", "جشنواره", "دعوت از دوستان",
+        "معرفی کنید", "نصب اپلیکیشن", "تخفیف", "هدیه نقدی", "پاداش دعوت",
+        "دریافت وام", "طرح وام", "تسهیلات قرض الحسنه", "اعتبار خرید", "خرید اقساطی",
+        "سود سپرده", "صندوق سرمایه‌گذاری"
+    )
+
+    private val OPERATOR_BILL_KEYWORDS = listOf(
+        "شناسه قبض", "شناسه پرداخت", "مهلت پرداخت", "شرکت مخابرات",
+        "بدهی خط شما", "قطع میان دوره", "صورتحساب تلفن", "هیچکس تنها نیست",
+        "همراه اول", "ایرانسل", "رایتل", "مخابرات ایران"
+    )
+
     /**
      * بررسی آیا پیامک به یک تراکنش مالی بانکی تعلق دارد؟
      */
@@ -46,7 +61,7 @@ object BankSmsParser {
         val s = (sender ?: "").lowercase()
         val b = body.lowercase()
 
-        // استثنا: پیامک‌های حاوی صرفاً رمز پویا تراکنش نیستند
+        // استثنا ۱: پیامک‌های حاوی صرفاً رمز پویا تراکنش نیستند
         if ((b.contains("رمز") || b.contains("کد")) &&
             !b.contains("واریز") && !b.contains("برداشت") && !b.contains("مانده") &&
             !b.contains("نشست") && !b.contains("پرید") && !b.contains("موجودی")
@@ -54,10 +69,28 @@ object BankSmsParser {
             return false
         }
 
+        // استثنا ۲: پیامک‌های اپراتورها و قبوض مخابرات تراکنش بانکی نیستند مگر رسید رسمی کسر از حساب باشد
+        if (OPERATOR_BILL_KEYWORDS.any { b.contains(it) } &&
+            !b.contains("از حساب شما پرید") && !b.contains("برداشت پول") && !b.contains("کسر شد")
+        ) {
+            return false
+        }
+
+        // استثنا ۳: پیامک‌های تبلیغاتی وام، قرعه‌کشی و پیشنهادهای بانکی تراکنش نیستند
+        val isPromo = PROMOTIONAL_KEYWORDS.any { b.contains(it) }
+        val hasConfirmedExecution = b.contains("به حساب شما نشست") || b.contains("از حساب شما پرید") ||
+                b.contains("واریز شد") || b.contains("برداشت شد") ||
+                (b.contains("واریز:") && !b.contains("وام")) ||
+                (b.contains("برداشت:") && !b.contains("وام"))
+
+        if (isPromo && !hasConfirmedExecution) {
+            return false
+        }
+
         val hasSenderMatch = KNOWN_BANKS.any { (_, aliases) -> aliases.any { s.contains(it) } }
         val hasBankAction = b.contains("واریز") || b.contains("برداشت") || b.contains("خرید") ||
                 b.contains("کسر") || b.contains("نشست") || b.contains("پرید") ||
-                b.contains("بستانکار") || b.contains("بدهکار") || b.contains("پرداخت") ||
+                b.contains("بستانکار") || b.contains("بدهکار") ||
                 b.contains("انتقال وجه") || b.contains("افزایش موجودی") || b.contains("کاهش موجودی")
         val hasFinancialContext = b.contains("مبلغ") || b.contains("ریال") || b.contains("تومان") ||
                 b.contains("مانده") || b.contains("موجودی") || b.contains("حساب") || b.contains("کارت")

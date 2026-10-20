@@ -114,6 +114,20 @@ class SmartFeaturesTest {
         assertNotNull(mCredit)
         assertEquals("DEPOSIT", mCredit!!.type)
         assertEquals(1_000_000L, mCredit.amount)
+
+        // ۶. فیلتر تبلیغات وام و تسهیلات بانکی (نباید به عنوان تراکنش ثبت شود)
+        val loanPromo = "بلوبانک\nپیشنهاد وام\nجواد عزیز، شما می‌توانید تا سقف 100,000,000 ریال تسهیلات بدون ضامن دریافت کنید."
+        assertFalse(BankSmsParser.isBankMessage("blubank", loanPromo))
+        assertNull(BankSmsParser.parse("blubank", loanPromo, 1729000000000L))
+
+        // ۷. فیلتر قبوض مخابرات و رسید همراه اول (نباید به عنوان تراکنش ثبت شود)
+        val mciReceipt = "مشترک گرامی\nضمن تشکر، پرداخت شما به مبلغ 1473000 ریال دریافت شد.\nهمراه اول"
+        assertFalse(BankSmsParser.isBankMessage("HAMRAH_AVAL", mciReceipt))
+        assertNull(BankSmsParser.parse("HAMRAH_AVAL", mciReceipt, 1729000000000L))
+
+        val tciBill = "شرکت مخابرات ایران\nمبلغ صورتحساب: 333123\nقابل پرداخت: 879000 ریال\nشناسه قبض: 0256114121147"
+        assertFalse(BankSmsParser.isBankMessage("TCI", tciBill))
+        assertNull(BankSmsParser.parse("TCI", tciBill, 1729000000000L))
     }
 
     // ۴. تست استخراج رویداد سررسید چک و تاریخ شمسی (Feature 3)

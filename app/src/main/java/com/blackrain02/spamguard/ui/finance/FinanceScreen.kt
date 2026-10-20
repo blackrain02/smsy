@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.blackrain02.spamguard.data.local.BankTransactionEntity
+import com.blackrain02.spamguard.data.repository.BankSenderRepository
 import com.blackrain02.spamguard.data.repository.BankTransactionRepository
 import com.blackrain02.spamguard.ui.util.DateUtils
 import com.blackrain02.spamguard.ui.util.LocalAppStrings
@@ -40,6 +41,12 @@ fun FinanceScreen(
     val allTransactions by bankRepo.getAllTransactions().collectAsState(initial = emptyList())
     var selectedFilter by remember { mutableStateOf("ALL") }
     var isScanning by remember { mutableStateOf(false) }
+
+    val bankSenderRepo = remember { BankSenderRepository(context) }
+    val bankSenders by bankSenderRepo.bankSendersFlow.collectAsState()
+    var showBankSendersDialog by remember { mutableStateOf(false) }
+    var showRescanConfirmDialog by remember { mutableStateOf(false) }
+    var newSenderInput by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         bankRepo.cleanupAndReparse()
@@ -114,6 +121,22 @@ fun FinanceScreen(
                                 Icons.Default.Sync,
                                 contentDescription = strings.financialScan,
                                 tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        IconButton(onClick = { showBankSendersDialog = true }) {
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = strings.designatedBankSenders,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        IconButton(onClick = { showRescanConfirmDialog = true }) {
+                            Icon(
+                                Icons.Default.RestartAlt,
+                                contentDescription = strings.clearAndRescan,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -385,5 +408,117 @@ fun FinanceScreen(
                 }
             }
         }
+    }
+
+    if (showBankSendersDialog) {
+        AlertDialog(
+            onDismissRequest = { showBankSendersDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AccountBalance, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(strings.designatedBankSenders, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        strings.bankSenderDescription,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = newSenderInput,
+                            onValueChange = { newSenderInput = it },
+                            placeholder = { Text(strings.enterBankSenderHint, fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        IconButton(
+                            onClick = {
+                                if (newSenderInput.isNotBlank()) {
+                                    bankSenderRepo.addBankSender(newSenderInput.trim())
+                                    newSenderInput = ""
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.AddCircle, contentDescription = strings.add, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp)
+                    ) {
+                        items(bankSenders.toList()) { sender ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(sender, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                IconButton(
+                                    onClick = {
+                                        bankSenderRepo.removeBankSender(sender)
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showBankSendersDialog = false }) {
+                    Text(strings.close)
+                }
+            }
+        )
+    }
+
+    if (showRescanConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showRescanConfirmDialog = false },
+            title = { Text(strings.clearAndRescan, fontWeight = FontWeight.Bold) },
+            text = { Text(strings.clearAndRescanConfirm, fontSize = 13.5.sp) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showRescanConfirmDialog = false
+                        isScanning = true
+                        scope.launch {
+                            val count = bankRepo.clearAllAndRescan()
+                            isScanning = false
+                            val msg = if (strings.isFa) "$count تراکنش بانکی با موفقیت استخراج و بازنشانی شد" else "$count transactions refreshed"
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text(strings.clearAndRescan)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRescanConfirmDialog = false }) {
+                    Text(strings.cancel)
+                }
+            }
+        )
     }
 }

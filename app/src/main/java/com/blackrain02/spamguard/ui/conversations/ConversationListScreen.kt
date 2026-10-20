@@ -53,6 +53,7 @@ import com.blackrain02.spamguard.data.local.BlocklistEntity
 import com.blackrain02.spamguard.data.local.QuickTemplateEntity
 import com.blackrain02.spamguard.data.model.Conversation
 import com.blackrain02.spamguard.data.repository.BackupRepository
+import com.blackrain02.spamguard.data.repository.BankSenderRepository
 import com.blackrain02.spamguard.data.repository.BankTransactionRepository
 import com.blackrain02.spamguard.data.repository.FinancialStats
 import com.blackrain02.spamguard.data.repository.ScanProgress
@@ -171,6 +172,8 @@ fun ConversationListScreen(
     var showBlocklistDialog by remember { mutableStateOf(false) }
     var showTemplatesDialog by remember { mutableStateOf(false) }
     val securityRepo = remember { smsRepository.securityRepository }
+    val bankRepo = remember { BankTransactionRepository(context) }
+    val bankSenderRepo = remember { BankSenderRepository(context) }
     var pinDialogMode by remember { mutableStateOf<PinDialogMode?>(null) }
     var pendingUnlockedConversation by remember { mutableStateOf<Conversation?>(null) }
     var conversationToLockUnlock by remember { mutableStateOf<Conversation?>(null) }
@@ -1151,7 +1154,55 @@ fun ConversationListScreen(
                     )
                 }
 
-                // ۵. انتقال به اسپم (قرنطینه)
+                // ۵. تعیین یا حذف به عنوان پیامک بانکی
+                val isTargetBank = remember(target) {
+                    bankSenderRepo.isBankSender(target.address, target.contactName)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val addr = target.address
+                            val nowBank = bankSenderRepo.toggleBankSender(addr)
+                            for (merged in target.mergedAddresses) {
+                                if (nowBank) bankSenderRepo.addBankSender(merged) else bankSenderRepo.removeBankSender(merged)
+                            }
+                            selectedConversationForAction = null
+                            Toast.makeText(
+                                context,
+                                if (nowBank) strings.bankSenderAdded else strings.bankSenderRemoved,
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            scope.launch {
+                                bankRepo.cleanupAndReparse()
+                            }
+                        }
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.AccountBalance,
+                        contentDescription = null,
+                        tint = if (isTargetBank) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            if (isTargetBank) strings.unmarkAsBankSender else strings.markAsBankSender,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            strings.bankSenderDescription,
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // ۶. انتقال به اسپم (قرنطینه)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
