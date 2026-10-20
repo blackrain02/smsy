@@ -23,6 +23,9 @@ interface BankTransactionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(transactions: List<BankTransactionEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun updateAll(transactions: List<BankTransactionEntity>)
+
     @Query("SELECT COUNT(*) FROM bank_transactions WHERE timestamp = :timestamp AND rawBody = :rawBody")
     suspend fun exists(timestamp: Long, rawBody: String): Int
 

@@ -411,33 +411,6 @@ fun ConversationListScreen(
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            IconButton(
-                                onClick = {
-                                    if (!isScanning) {
-                                        isScanning = true
-                                        scope.launch {
-                                            val classifier = SpamClassifier.getInstance(context)
-                                            val result = smsRepository.scanAndCleanHistoricalSms(
-                                                spamRepository = spamRepository,
-                                                classifier = classifier,
-                                                onProgress = { progress ->
-                                                    scanProgress = progress
-                                                }
-                                            )
-                                            isScanning = false
-                                            finalResult = result
-                                            showResultDialog = true
-                                            refreshList()
-                                        }
-                                    }
-                                }
-                            ) {
-                                Icon(
-                                    Icons.Default.AutoFixHigh,
-                                    contentDescription = strings.scanHistoricalSms,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
                         }
                     )
                 }
@@ -1442,7 +1415,46 @@ fun ConversationListScreen(
                     Text(strings.financialDashboard, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
                 }
 
-                // ۸. امنیت، حریم خصوصی و رمز عبور (PIN)
+                // ۸. اسکن و تحلیل هوشمند پیامک‌ها و شناسایی اسپم
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showSettingsSheet = false
+                            if (!isScanning) {
+                                isScanning = true
+                                scope.launch {
+                                    val classifier = SpamClassifier.getInstance(context)
+                                    val result = smsRepository.scanAndCleanHistoricalSms(
+                                        spamRepository = spamRepository,
+                                        classifier = classifier,
+                                        onProgress = { progress ->
+                                            scanProgress = progress
+                                        }
+                                    )
+                                    isScanning = false
+                                    finalResult = result
+                                    showResultDialog = true
+                                    refreshList()
+                                }
+                            }
+                        }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(strings.scanHistoricalSms, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            if (strings.isFa) "شناسایی و انتقال خودکار پیامک‌های تبلیغاتی به قرنطینه" else "Scan and move spam messages to quarantine",
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // ۹. امنیت، حریم خصوصی و رمز عبور (PIN)
                 Text(strings.securitySettings, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -2553,33 +2565,6 @@ fun ConversationItem(
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(13.dp)
                     )
-                }
-
-                if (conversation.mergedAddresses.size > 1) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Surface(
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.CallMerge,
-                                contentDescription = "Merged Senders",
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.size(11.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "${conversation.mergedAddresses.size}",
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
                 }
             }
 

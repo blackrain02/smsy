@@ -8,6 +8,7 @@ import com.blackrain02.spamguard.data.local.BankTransactionEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 data class FinancialStats(
@@ -21,6 +22,12 @@ class BankTransactionRepository(private val context: Context) {
 
     private val db = AppDatabase.getInstance(context)
     private val dao = db.bankTransactionDao()
+
+    init {
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            cleanupAndReparse()
+        }
+    }
 
     fun getAllTransactions(): Flow<List<BankTransactionEntity>> = dao.getAll()
 
@@ -48,6 +55,22 @@ class BankTransactionRepository(private val context: Context) {
 
     suspend fun cleanupDuplicates(): Int = withContext(Dispatchers.IO) {
         dao.purgeDuplicates()
+    }
+
+    suspend fun cleanupAndReparse(): Int = withContext(Dispatchers.IO) {
+        dao.purgeDuplicates()
+        val all = dao.getAllList()
+        val toUpdate = mutableListOf<BankTransactionEntity>()
+        for (item in all) {
+            val reparsed = BankSmsParser.parse(null, item.rawBody, item.timestamp)
+            if (reparsed != null) {
+                toUpdate.add(reparsed.copy(id = item.id))
+            }
+        }
+        if (toUpdate.isNotEmpty()) {
+            dao.updateAll(toUpdate)
+        }
+        toUpdate.size
     }
 
     suspend fun recordIfBankMessage(sender: String?, body: String?, timestamp: Long): Boolean = withContext(Dispatchers.IO) {

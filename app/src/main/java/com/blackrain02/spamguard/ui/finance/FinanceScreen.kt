@@ -42,7 +42,7 @@ fun FinanceScreen(
     var isScanning by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        bankRepo.cleanupDuplicates()
+        bankRepo.cleanupAndReparse()
     }
 
     val activeTransactions = remember(allTransactions, isDecoy) {
