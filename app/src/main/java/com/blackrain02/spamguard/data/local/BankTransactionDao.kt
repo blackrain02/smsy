@@ -45,6 +45,12 @@ interface BankTransactionDao {
     @Query("DELETE FROM bank_transactions WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("UPDATE bank_transactions SET category = :category WHERE id = :id")
+    suspend fun updateCategory(id: Long, category: String)
+
+    @Query("UPDATE bank_transactions SET type = :type WHERE id = :id")
+    suspend fun updateType(id: Long, type: String)
+
     @Query("DELETE FROM bank_transactions")
     suspend fun deleteAll()
 }

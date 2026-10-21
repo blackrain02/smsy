@@ -2539,6 +2539,18 @@ fun ConversationListScreen(
     }
 }
 
+private val WHITESPACE_REGEX = Regex("\\s+")
+
+private fun isRtlSnippet(text: String): Boolean {
+    val limit = minOf(text.length, 60)
+    for (i in 0 until limit) {
+        val c = text[i]
+        if (c in '\u0600'..'\u06FF' || c in '\uFB50'..'\uFDFF' || c in '\uFE70'..'\uFEFF') return true
+        if (c in 'A'..'Z' || c in 'a'..'z') return false
+    }
+    return false
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ConversationItem(
@@ -2631,10 +2643,10 @@ fun ConversationItem(
                 )
             } else {
                 val cleanSnippet = remember(conversation.snippet) {
-                    conversation.snippet.replace(Regex("\\s+"), " ").trim()
+                    conversation.snippet.replace(WHITESPACE_REGEX, " ").trim()
                 }
                 val isRtl = remember(cleanSnippet) {
-                    cleanSnippet.any { it in '\u0600'..'\u06FF' || it in '\uFB50'..'\uFDFF' || it in '\uFE70'..'\uFEFF' }
+                    isRtlSnippet(cleanSnippet)
                 }
                 val layoutDir = LocalLayoutDirection.current
                 val textAlignment = if (isRtl) {

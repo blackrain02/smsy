@@ -147,6 +147,14 @@ class BankTransactionRepository(private val context: Context) {
         dao.deleteById(id)
     }
 
+    suspend fun updateTransactionCategory(id: Long, category: String) = withContext(Dispatchers.IO) {
+        dao.updateCategory(id, category.trim())
+    }
+
+    suspend fun updateTransactionType(id: Long, type: String) = withContext(Dispatchers.IO) {
+        dao.updateType(id, type)
+    }
+
     suspend fun clearAll() = withContext(Dispatchers.IO) {
         dao.deleteAll()
     }

@@ -2,6 +2,7 @@ package com.blackrain02.spamguard.ui.finance
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -26,7 +28,7 @@ import com.blackrain02.spamguard.ui.util.LocalAppStrings
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun FinanceScreen(
     bankRepo: BankTransactionRepository
@@ -47,6 +49,15 @@ fun FinanceScreen(
     var showBankSendersDialog by remember { mutableStateOf(false) }
     var showRescanConfirmDialog by remember { mutableStateOf(false) }
     var newSenderInput by remember { mutableStateOf("") }
+
+    var selectedTransactionForEdit by remember { mutableStateOf<BankTransactionEntity?>(null) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var editCategoryText by remember(selectedTransactionForEdit) {
+        mutableStateOf(selectedTransactionForEdit?.category ?: "")
+    }
+    var editType by remember(selectedTransactionForEdit) {
+        mutableStateOf(selectedTransactionForEdit?.type ?: "DEPOSIT")
+    }
 
     LaunchedEffect(Unit) {
         bankRepo.cleanupAndReparse()
@@ -339,7 +350,9 @@ fun FinanceScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 12.dp),
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { selectedTransactionForEdit = item }
+                                    .padding(vertical = 12.dp, horizontal = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -516,6 +529,275 @@ fun FinanceScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showRescanConfirmDialog = false }) {
+                    Text(strings.cancel)
+                }
+            }
+        )
+    }
+
+    selectedTransactionForEdit?.let { tx ->
+        ModalBottomSheet(
+            onDismissRequest = { selectedTransactionForEdit = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        ) {
+            val isDeposit = editType == "DEPOSIT"
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .navigationBarsPadding()
+            ) {
+                // هدر شیت
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.ReceiptLong,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = strings.editTransaction,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    IconButton(onClick = { selectedTransactionForEdit = null }) {
+                        Icon(Icons.Default.Close, contentDescription = strings.close)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // کارت نمایش مبلغ، بانک و انتخاب نوع واریز/برداشت
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = tx.bankName + if (!tx.cardNumber.isNullOrBlank()) " (${tx.cardNumber})" else "",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        val sign = if (isDeposit) "+" else "-"
+                        val amountFormatted = String.format(Locale.ENGLISH, "%,d", tx.amount)
+                        Text(
+                            text = "$sign$amountFormatted ${tx.amountUnit}",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isDeposit) Color(0xFF059669) else Color(0xFFDC2626)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = DateUtils.formatMessageDetailTime(tx.timestamp, isSolarCalendar),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // تغییر نوع تراکنش (واریز / برداشت)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            FilterChip(
+                                selected = isDeposit,
+                                onClick = { editType = "DEPOSIT" },
+                                label = { Text(strings.depositType, fontSize = 12.sp) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.ArrowDownward,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (isDeposit) Color(0xFF059669) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF10B981).copy(alpha = 0.2f),
+                                    selectedLabelColor = Color(0xFF059669)
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            FilterChip(
+                                selected = !isDeposit,
+                                onClick = { editType = "WITHDRAWAL" },
+                                label = { Text(strings.withdrawalType, fontSize = 12.sp) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.ArrowUpward,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (!isDeposit) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFEF4444).copy(alpha = 0.2f),
+                                    selectedLabelColor = Color(0xFFDC2626)
+                                )
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // برچسب و دسته‌بندی
+                Text(
+                    text = strings.transactionCategory,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // برچسب‌های آماده
+                val quickOptions = if (strings.isFa) {
+                    listOf("بانکی", "حقوق و درآمد", "خرید و فروشگاه", "خوراک و رستوران", "قبوض و خدمات", "انتقال وجه", "قسط و وام", "پزشکی و سلامت", "خودرو", "سایر")
+                } else {
+                    listOf("Bank", "Salary", "Shopping", "Food & Dining", "Bills", "Transfer", "Loan", "Healthcare", "Auto", "Other")
+                }
+
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    quickOptions.forEach { opt ->
+                        val isSelected = editCategoryText == opt
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.clickable { editCategoryText = opt }
+                        ) {
+                            Text(
+                                text = opt,
+                                fontSize = 11.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // فیلد متن دلخواه برچسب
+                OutlinedTextField(
+                    value = editCategoryText,
+                    onValueChange = { editCategoryText = it },
+                    placeholder = { Text(strings.customLabelHint, fontSize = 12.sp) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (tx.rawBody.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = strings.originalSmsBody,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = tx.rawBody,
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // دکمه‌های عملیات: ذخیره تغییرات و حذف تراکنش
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                bankRepo.updateTransactionCategory(tx.id, editCategoryText)
+                                bankRepo.updateTransactionType(tx.id, editType)
+                                Toast.makeText(context, strings.transactionUpdated, Toast.LENGTH_SHORT).show()
+                                selectedTransactionForEdit = null
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(strings.saveChanges, fontSize = 13.5.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = { showDeleteConfirmDialog = true },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(strings.delete, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+        }
+    }
+
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text(strings.deleteTransaction, fontWeight = FontWeight.Bold) },
+            text = { Text(strings.deleteTransactionConfirm, fontSize = 13.5.sp) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val txToDelete = selectedTransactionForEdit
+                        showDeleteConfirmDialog = false
+                        selectedTransactionForEdit = null
+                        if (txToDelete != null) {
+                            scope.launch {
+                                bankRepo.deleteTransaction(txToDelete.id)
+                                Toast.makeText(context, strings.transactionDeleted, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text(strings.delete)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
                     Text(strings.cancel)
                 }
             }

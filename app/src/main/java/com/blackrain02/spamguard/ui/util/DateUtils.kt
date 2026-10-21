@@ -2,6 +2,7 @@ package com.blackrain02.spamguard.ui.util
 
 import android.content.Context
 import android.text.format.DateUtils as AndroidDateUtils
+import android.util.LruCache
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -10,6 +11,25 @@ import java.util.Locale
 object DateUtils {
     private const val PREFS_NAME = "calendar_prefs"
     private const val KEY_USE_SOLAR = "use_solar_calendar"
+
+    private val conversationDateCache = object : LruCache<Long, String>(350) {}
+    private val calHolder = ThreadLocal.withInitial { Calendar.getInstance(Locale.ENGLISH) }
+
+    private var lastNowYear = 0
+    private var lastNowJYear = 0
+    private var lastNowCheck = 0L
+
+    private fun getNowJalaliYear(now: Long): Int {
+        if (now - lastNowCheck > 60_000L) {
+            val c = calHolder.get() ?: Calendar.getInstance(Locale.ENGLISH)
+            c.timeInMillis = now
+            lastNowYear = c.get(Calendar.YEAR)
+            val j = gregorianToJalali(lastNowYear, c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+            lastNowJYear = j.year
+            lastNowCheck = now
+        }
+        return lastNowJYear
+    }
 
     private val gregMonthDayFormat = SimpleDateFormat("MM/dd", Locale.ENGLISH)
     private val gregYearFormat = SimpleDateFormat("yyyy/MM/dd", Locale.ENGLISH)
@@ -123,34 +143,34 @@ object DateUtils {
         }
     }
 
-    @Synchronized
     fun formatConversationDate(timestamp: Long, isSolar: Boolean): String {
         if (timestamp <= 0L) return ""
-        return try {
+        val cacheKey = if (isSolar) timestamp else -timestamp
+        val cached = conversationDateCache.get(cacheKey)
+        if (cached != null) return cached
+
+        val res = try {
             val now = System.currentTimeMillis()
             val diff = now - timestamp
             val isToday = AndroidDateUtils.isToday(timestamp)
             val isYesterday = !isToday && diff < 2 * 86_400_000L && AndroidDateUtils.isToday(timestamp + 86_400_000L)
 
-            val cal = Calendar.getInstance(Locale.ENGLISH).apply { timeInMillis = timestamp }
+            val cal = calHolder.get() ?: Calendar.getInstance(Locale.ENGLISH)
+            cal.timeInMillis = timestamp
             val timeStr = String.format(Locale.ENGLISH, "%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
 
-            if (isToday) return timeStr
-            if (isYesterday) return "Yesterday"
-
-            if (isSolar) {
+            if (isToday) {
+                timeStr
+            } else if (isYesterday) {
+                "Yesterday"
+            } else if (isSolar) {
                 val jDate = gregorianToJalali(
                     cal.get(Calendar.YEAR),
                     cal.get(Calendar.MONTH) + 1,
                     cal.get(Calendar.DAY_OF_MONTH)
                 )
-                val nowCal = Calendar.getInstance(Locale.ENGLISH).apply { timeInMillis = now }
-                val nowJ = gregorianToJalali(
-                    nowCal.get(Calendar.YEAR),
-                    nowCal.get(Calendar.MONTH) + 1,
-                    nowCal.get(Calendar.DAY_OF_MONTH)
-                )
-                if (jDate.year == nowJ.year) {
+                val currentJYear = getNowJalaliYear(now)
+                if (jDate.year == currentJYear) {
                     String.format(Locale.ENGLISH, "%02d/%02d", jDate.month, jDate.day)
                 } else {
                     String.format(Locale.ENGLISH, "%04d/%02d/%02d", jDate.year, jDate.month, jDate.day)
@@ -167,6 +187,11 @@ object DateUtils {
                 ""
             }
         }
+
+        if (res.isNotEmpty()) {
+            conversationDateCache.put(cacheKey, res)
+        }
+        return res
     }
 
     @Synchronized

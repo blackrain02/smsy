@@ -1,7 +1,9 @@
 package com.blackrain02.spamguard.ui.util
 
+import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.LruCache
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -188,6 +190,70 @@ fun ChatSkeletonList() {
 }
 
 /**
+ * کش رم سراسری برای تصاویر آواتار مخاطبین جهت جلوگیری از افت فریم و لگ اسکرول
+ */
+object AvatarCache {
+    private val memoryCache = object : LruCache<String, ImageBitmap>(150) {}
+    private val failedUris = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    fun get(uri: String): ImageBitmap? = memoryCache.get(uri)
+
+    fun put(uri: String, bitmap: ImageBitmap) {
+        memoryCache.put(uri, bitmap)
+    }
+
+    fun isFailed(uri: String): Boolean = failedUris.contains(uri)
+
+    fun markFailed(uri: String) {
+        failedUris.add(uri)
+    }
+
+    fun decodeDownsampled(context: Context, uriString: String, reqSizePx: Int = 120): ImageBitmap? {
+        if (isFailed(uriString)) return null
+        return try {
+            val uri = Uri.parse(uriString)
+            val options = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, options)
+            }
+            if (options.outWidth <= 0 || options.outHeight <= 0) {
+                markFailed(uriString)
+                return null
+            }
+
+            var inSampleSize = 1
+            val maxDim = maxOf(options.outWidth, options.outHeight)
+            while ((maxDim / inSampleSize) > reqSizePx * 1.5) {
+                inSampleSize *= 2
+            }
+
+            val decodeOptions = BitmapFactory.Options().apply {
+                this.inSampleSize = inSampleSize
+                inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+            }
+
+            val bm = context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, decodeOptions)
+            }
+
+            if (bm != null) {
+                val imageBitmap = bm.asImageBitmap()
+                put(uriString, imageBitmap)
+                imageBitmap
+            } else {
+                markFailed(uriString)
+                null
+            }
+        } catch (_: Throwable) {
+            markFailed(uriString)
+            null
+        }
+    }
+}
+
+/**
  * آواتار مخاطب با خواندن تصویر واقعی از مخاطبین گوشی و فال‌بک به حروف اول
  */
 @Composable
@@ -200,21 +266,24 @@ fun ContactAvatar(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var bitmap by remember(photoUri) { mutableStateOf<ImageBitmap?>(null) }
+    var bitmap by remember(photoUri) {
+        mutableStateOf(photoUri?.let { AvatarCache.get(it) })
+    }
 
     LaunchedEffect(photoUri) {
-        if (!photoUri.isNullOrBlank()) {
+        if (!photoUri.isNullOrBlank() && bitmap == null && !AvatarCache.isFailed(photoUri)) {
             withContext(Dispatchers.IO) {
-                try {
-                    context.contentResolver.openInputStream(Uri.parse(photoUri))?.use { stream ->
-                        val bm = BitmapFactory.decodeStream(stream)
-                        bitmap = bm?.asImageBitmap()
+                val cached = AvatarCache.get(photoUri)
+                if (cached != null) {
+                    bitmap = cached
+                } else {
+                    val decoded = AvatarCache.decodeDownsampled(context, photoUri)
+                    if (decoded != null) {
+                        bitmap = decoded
                     }
-                } catch (_: Throwable) {
-                    bitmap = null
                 }
             }
-        } else {
+        } else if (photoUri.isNullOrBlank()) {
             bitmap = null
         }
     }
