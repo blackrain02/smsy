@@ -21,9 +21,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -104,6 +107,7 @@ fun ChatScreen(
         com.blackrain02.spamguard.notification.NotificationHelper.cancelForSender(context, address)
     }
     var messageForAction by remember { mutableStateOf<Message?>(null) }
+    var messageToSelectText by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
@@ -690,7 +694,7 @@ fun ChatScreen(
     }
 }
 
-    // دیالوگ منوی پیام با نگه‌داشتن طولانی (Copy / Delete)
+    // دیالوگ منوی پیام با نگه‌داشتن طولانی (Copy / Select / Delete)
     if (messageForAction != null) {
         val target = messageForAction!!
         AlertDialog(
@@ -701,6 +705,7 @@ fun ChatScreen(
                     TextButton(
                         onClick = {
                             clipboardManager.setText(AnnotatedString(target.body))
+                            Toast.makeText(context, strings.allTextCopied, Toast.LENGTH_SHORT).show()
                             messageForAction = null
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -709,6 +714,20 @@ fun ChatScreen(
                             Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(strings.copyMessageText, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+
+                    TextButton(
+                        onClick = {
+                            messageToSelectText = target.body
+                            messageForAction = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.SelectAll, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(strings.copyPartialText, color = MaterialTheme.colorScheme.primary)
                         }
                     }
 
@@ -734,6 +753,74 @@ fun ChatScreen(
             dismissButton = {
                 TextButton(onClick = { messageForAction = null }) {
                     Text(strings.cancel)
+                }
+            }
+        )
+    }
+
+    // دیالوگ انتخاب و کپی بخشی از متن پیامک
+    if (messageToSelectText != null) {
+        val textToSelect = messageToSelectText!!
+        AlertDialog(
+            onDismissRequest = { messageToSelectText = null },
+            icon = { Icon(Icons.Default.SelectAll, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = {
+                Text(
+                    text = strings.selectTextTitle,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = strings.selectTextHint,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .padding(12.dp)
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = textToSelect,
+                                    fontSize = 14.sp,
+                                    lineHeight = 22.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(textToSelect))
+                        Toast.makeText(context, strings.allTextCopied, Toast.LENGTH_SHORT).show()
+                        messageToSelectText = null
+                    }
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(strings.copyAll)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { messageToSelectText = null }) {
+                    Text(strings.close)
                 }
             }
         )

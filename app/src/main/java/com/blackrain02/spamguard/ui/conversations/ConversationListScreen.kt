@@ -33,6 +33,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -638,9 +640,6 @@ fun ConversationListScreen(
                                     onClick = { handleConversationClick(item) },
                                     onLongClick = { selectedConversationForAction = item }
                                 )
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                                )
                             }
                         }
 
@@ -787,9 +786,6 @@ fun ConversationListScreen(
                                     }
                                 }
                             )
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                            )
                         }
 
                         if (normalList.isNotEmpty()) {
@@ -858,9 +854,6 @@ fun ConversationListScreen(
                                     selectedConversationForAction = item
                                 }
                             }
-                        )
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
                         )
                     }
                 }
@@ -2568,11 +2561,21 @@ fun ConversationItem(
     } else {
         Color.Transparent
     }
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(itemBg)
+            .drawBehind {
+                val strokeWidth = 1.dp.toPx()
+                drawLine(
+                    color = dividerColor,
+                    start = Offset(0f, size.height - strokeWidth),
+                    end = Offset(size.width, size.height - strokeWidth),
+                    strokeWidth = strokeWidth
+                )
+            }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -2580,11 +2583,7 @@ fun ConversationItem(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AnimatedVisibility(
-            visible = isSelectionMode,
-            enter = fadeIn(animationSpec = tween(180)) + expandHorizontally(animationSpec = tween(180)),
-            exit = fadeOut(animationSpec = tween(180)) + shrinkHorizontally(animationSpec = tween(180))
-        ) {
+        if (isSelectionMode) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(
                     checked = isSelected,
@@ -2642,12 +2641,8 @@ fun ConversationItem(
                     maxLines = 1
                 )
             } else {
-                val cleanSnippet = remember(conversation.snippet) {
-                    conversation.snippet.replace(WHITESPACE_REGEX, " ").trim()
-                }
-                val isRtl = remember(cleanSnippet) {
-                    isRtlSnippet(cleanSnippet)
-                }
+                val cleanSnippet = conversation.cleanSnippet.ifEmpty { conversation.snippet }
+                val isRtl = conversation.isRtl
                 val layoutDir = LocalLayoutDirection.current
                 val textAlignment = if (isRtl) {
                     if (layoutDir == LayoutDirection.Rtl) TextAlign.Start else TextAlign.Right
@@ -2688,7 +2683,7 @@ fun ConversationItem(
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                 }
-                val formattedDate = remember(conversation.date, isSolarCalendar) {
+                val formattedDate = conversation.formattedDate.ifEmpty {
                     DateUtils.formatConversationDate(conversation.date, isSolarCalendar)
                 }
                 Text(

@@ -5,12 +5,16 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
+import androidx.core.graphics.drawable.IconCompat
 import com.blackrain02.spamguard.data.repository.SecurityRepository
 import com.blackrain02.spamguard.data.repository.SenderAliasRepository
+import com.blackrain02.spamguard.data.repository.SmsRepository
 import com.blackrain02.spamguard.receiver.NotificationActionReceiver
 import com.blackrain02.spamguard.ui.MainActivity
 import com.blackrain02.spamguard.ui.theme.AppLanguage
@@ -98,17 +102,34 @@ object NotificationHelper {
         // ۱. بررسی حریم خصوصی و قفل بودن گفتگو
         val securityRepo = SecurityRepository(context)
         val aliasRepo = SenderAliasRepository(context)
+        val smsRepo = SmsRepository(context)
         val alias = aliasRepo.getAliasForAddress(sender)
+        val contactName = smsRepo.getContactName(sender)
         val lockKey = securityRepo.getLockKey(sender, alias?.id)
         val isLocked = securityRepo.isConversationLocked(lockKey)
 
         val groupKey = alias?.id ?: sender
-        val displaySender = alias?.displayName ?: sender
+        val displaySender = contactName ?: alias?.displayName ?: sender
         val displayBody = if (isLocked) {
             if (isFa) "پیام جدید دریافت شد (قفل شده)" else "New message received (Locked)"
         } else {
             body
         }
+
+        val photoUri = if (!isLocked) smsRepo.getContactPhoto(sender) else null
+        val avatarBitmap: android.graphics.Bitmap? = if (!photoUri.isNullOrBlank()) {
+            try {
+                val parsedUri = Uri.parse(photoUri)
+                context.contentResolver.openInputStream(parsedUri)?.use { stream ->
+                    val opts = BitmapFactory.Options().apply {
+                        inSampleSize = 1
+                    }
+                    BitmapFactory.decodeStream(stream, null, opts)
+                }
+            } catch (_: Throwable) {
+                null
+            }
+        } else null
 
         // ۲. تجمیع پیامک‌های این سرشماره جهت استک شدن در MessagingStyle
         val senderList = recentMessagesPerSender.getOrPut(groupKey) { mutableListOf() }
@@ -137,7 +158,11 @@ object NotificationHelper {
         )
 
         val userPerson = Person.Builder().setName("Me").build()
-        val senderPerson = Person.Builder().setName(displaySender).build()
+        val senderPersonBuilder = Person.Builder().setName(displaySender)
+        if (avatarBitmap != null) {
+            senderPersonBuilder.setIcon(IconCompat.createWithBitmap(avatarBitmap))
+        }
+        val senderPerson = senderPersonBuilder.build()
         val messagingStyle = NotificationCompat.MessagingStyle(userPerson)
             .setConversationTitle(displaySender)
             .setGroupConversation(false)
@@ -158,6 +183,10 @@ object NotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+
+        if (avatarBitmap != null) {
+            builder.setLargeIcon(avatarBitmap)
+        }
 
         // فقط در صورتی که قفل نباشد اکشن‌های کپی رمز و پاسخ سریع اضافه شود
         if (!isLocked) {

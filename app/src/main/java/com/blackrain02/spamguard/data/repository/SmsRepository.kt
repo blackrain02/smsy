@@ -19,6 +19,7 @@ import com.blackrain02.spamguard.data.model.ContactItem
 import com.blackrain02.spamguard.data.model.Conversation
 import com.blackrain02.spamguard.data.model.Message
 import com.blackrain02.spamguard.receiver.SmsDeliveryReceiver
+import com.blackrain02.spamguard.ui.util.DateUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -385,6 +386,10 @@ class SmsRepository(private val context: Context) {
                         val isLocked = securityRepo.isConversationLocked(
                             securityRepo.getLockKey(address, matchedAlias?.id)
                         )
+                        val isSolar = DateUtils.isSolarCalendar(context)
+                        val clean = snippet.replace(Regex("\\s+"), " ").trim()
+                        val isRtl = com.blackrain02.spamguard.data.model.isRtlSnippet(clean)
+                        val formattedDate = DateUtils.formatConversationDate(date, isSolar)
 
                         list.add(
                             Conversation(
@@ -400,7 +405,10 @@ class SmsRepository(private val context: Context) {
                                 subId = subId,
                                 isBlocked = isBlocked,
                                 isLocked = isLocked,
-                                photoUri = photoUri
+                                photoUri = photoUri,
+                                cleanSnippet = clean,
+                                isRtl = isRtl,
+                                formattedDate = formattedDate
                             )
                         )
                     }
@@ -436,7 +444,19 @@ class SmsRepository(private val context: Context) {
 
         // مرتب‌سازی: سنجاق‌شده‌ها در بالای لیست، سپس ترتیب نزولی تاریخ
         list.sortWith(compareByDescending<Conversation> { it.isPinned }.thenByDescending { it.date })
+        prewarmAvatarCache(list)
         list
+    }
+
+    private fun prewarmAvatarCache(conversations: List<Conversation>) {
+        try {
+            val toPrewarm = conversations.mapNotNull { it.photoUri }.distinct().take(40)
+            for (uri in toPrewarm) {
+                if (com.blackrain02.spamguard.ui.util.AvatarCache.get(uri) == null && !com.blackrain02.spamguard.ui.util.AvatarCache.isFailed(uri)) {
+                    com.blackrain02.spamguard.ui.util.AvatarCache.decodeDownsampled(context, uri)
+                }
+            }
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -918,17 +938,51 @@ class SmsRepository(private val context: Context) {
         ScanProgress(scanned = scanned, total = total, quarantined = quarantined)
     }
 
+    private fun resolveContactDirect(phoneNumber: String): CachedContact? {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
+        val trimmed = phoneNumber.trim()
+        if (trimmed.isEmpty()) return null
+        return try {
+            val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(trimmed))
+            val projection = arrayOf(
+                ContactsContract.PhoneLookup.DISPLAY_NAME,
+                ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI
+            )
+            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIdx = cursor.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME)
+                    val photoIdx = cursor.getColumnIndex(ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI)
+                    val name = if (nameIdx != -1) cursor.getString(nameIdx) else null
+                    val photo = if (photoIdx != -1) cursor.getString(photoIdx) else null
+                    if (!name.isNullOrBlank()) {
+                        CachedContact(name = name, photoUri = photo)
+                    } else null
+                } else null
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     fun getContactName(phoneNumber: String): String? {
         val alias = aliasRepo.getAliasForAddress(phoneNumber)
         if (alias != null) return alias.displayName
 
         val map = getContactCache()
-        return map[normalizePhoneNumber(phoneNumber)]?.name
+        val fromMap = map[normalizePhoneNumber(phoneNumber)]?.name
+        if (fromMap != null) return fromMap
+
+        return resolveContactDirect(phoneNumber)?.name
     }
 
     fun getContactPhoto(phoneNumber: String): String? {
         val map = getContactCache()
-        return map[normalizePhoneNumber(phoneNumber)]?.photoUri
+        val fromMap = map[normalizePhoneNumber(phoneNumber)]?.photoUri
+        if (fromMap != null) return fromMap
+
+        return resolveContactDirect(phoneNumber)?.photoUri
     }
 
     /**
