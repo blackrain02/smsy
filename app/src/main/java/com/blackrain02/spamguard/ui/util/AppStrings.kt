@@ -118,6 +118,11 @@ class AppStrings(val lang: AppLanguage) {
     val spamRetentionDialogTitle = if (isFa) "تنظیم زمان پاکسازی خودکار هرزنامه‌ها" else "Spam Auto-Delete Schedule"
     val spamRetentionCustomDays = if (isFa) "تعداد روز دلخواه:" else "Custom days:"
     val spamRetentionSaved = if (isFa) "تنظیمات پاکسازی هرزنامه‌ها ذخیره شد" else "Spam retention policy updated"
+    val defaultTag = if (isFa) " (پیش‌فرض)" else " (Default)"
+    val customDaysFieldLabel = if (isFa) "تعداد روز" else "Days"
+    val forwardEditAndMultiple = if (isFa) "ویرایش و انتخاب چند مخاطب در پیام جدید" else "Edit or select multiple recipients"
+    val forwardSendToNumber = if (isFa) "ارسال مستقیم به:" else "Send directly to:"
+    val sendFailed = if (isFa) "خطا در ارسال پیامک" else "Failed to send message"
 
     // Smart Features (Finance, Events, Smart Reply)
     val financialDashboard = if (isFa) "مدیریت مالی و تراکنش‌های بانکی" else "Financial & Expense Dashboard"

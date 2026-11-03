@@ -82,7 +82,7 @@ fun SpamRetentionDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = strings.spamRetentionDays(days) + (if (days == 7) " (پیش‌فرض)" else ""),
+                            text = strings.spamRetentionDays(days) + (if (days == 7) strings.defaultTag else ""),
                             fontSize = 13.5.sp
                         )
                     }
@@ -117,7 +117,7 @@ fun SpamRetentionDialog(
                                 customDaysText = input
                             }
                         },
-                        label = { Text(if (strings.isFa) "تعداد روز" else "Days") },
+                        label = { Text(strings.customDaysFieldLabel) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Number

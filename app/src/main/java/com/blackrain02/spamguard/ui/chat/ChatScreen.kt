@@ -967,7 +967,7 @@ fun ChatScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(if (strings.isFa) "ویرایش و انتخاب چند مخاطب در پیام جدید" else "Edit or select multiple recipients", fontSize = 12.5.sp)
+                            Text(strings.forwardEditAndMultiple, fontSize = 12.5.sp)
                         }
                     }
                 }
@@ -999,7 +999,7 @@ fun ChatScreen(
                                                     Toast.makeText(context, strings.forwardSuccess, Toast.LENGTH_SHORT).show()
                                                     messageToForward = null
                                                 } else {
-                                                    Toast.makeText(context, if (strings.isFa) "خطا در ارسال پیامک" else "Failed to send", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, strings.sendFailed, Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         }
@@ -1014,7 +1014,7 @@ fun ChatScreen(
                                         Icon(Icons.Default.Phone, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                         Spacer(modifier = Modifier.width(10.dp))
                                         Column {
-                                            Text(if (strings.isFa) "ارسال مستقیم به:" else "Send directly to:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(strings.forwardSendToNumber, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             Text(cleanDigits, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                         }
                                     }
@@ -1048,7 +1048,7 @@ fun ChatScreen(
                                                     Toast.makeText(context, strings.forwardSuccess, Toast.LENGTH_SHORT).show()
                                                     messageToForward = null
                                                 } else {
-                                                    Toast.makeText(context, if (strings.isFa) "خطا در ارسال پیامک" else "Failed to send", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, strings.sendFailed, Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         }
@@ -1106,7 +1106,7 @@ fun ChatScreen(
                                                     Toast.makeText(context, strings.forwardSuccess, Toast.LENGTH_SHORT).show()
                                                     messageToForward = null
                                                 } else {
-                                                    Toast.makeText(context, if (strings.isFa) "خطا در ارسال پیامک" else "Failed to send", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, strings.sendFailed, Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         }
