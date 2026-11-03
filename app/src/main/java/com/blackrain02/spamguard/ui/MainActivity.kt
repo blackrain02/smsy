@@ -63,7 +63,7 @@ sealed class Screen {
         val initialText: String = "",
         val highlightMessageId: Long? = null
     ) : Screen()
-    object NewMessage : Screen()
+    data class NewMessage(val initialText: String = "") : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -348,7 +348,7 @@ class MainActivity : ComponentActivity() {
                                             spamRepository = spamRepository,
                                             permissionTrigger = permissionTrigger.intValue,
                                             onRequestPermissions = { checkAndRequestPermissions() },
-                                            onNewMessageClick = { currentScreen = Screen.NewMessage },
+                                            onNewMessageClick = { currentScreen = Screen.NewMessage() },
                                             onOpenFinance = { openFinanceTab() },
                                             listState = conversationListState,
                                             cachedConversations = conversationList,
@@ -399,6 +399,17 @@ class MainActivity : ComponentActivity() {
                                             contactName = screen.contactName,
                                             smsRepository = smsRepository,
                                             onBack = { currentScreen = Screen.Conversations },
+                                            onForwardToNewMessage = { text ->
+                                                currentScreen = Screen.NewMessage(initialText = text)
+                                            },
+                                            onNavigateToChat = { tId, addr, name, text ->
+                                                currentScreen = Screen.Chat(
+                                                    threadId = tId,
+                                                    address = addr,
+                                                    contactName = name,
+                                                    initialText = text
+                                                )
+                                            },
                                             mergedAddresses = screen.mergedAddresses,
                                             initialText = screen.initialText,
                                             highlightMessageId = screen.highlightMessageId
@@ -409,8 +420,9 @@ class MainActivity : ComponentActivity() {
                                             smsRepository = smsRepository,
                                             onBack = { currentScreen = Screen.Conversations },
                                             onNavigateToChat = { threadId, address, contactName ->
-                                                currentScreen = Screen.Chat(threadId, address, contactName)
-                                            }
+                                                currentScreen = Screen.Chat(threadId, address, contactName, initialText = screen.initialText)
+                                            },
+                                            initialText = screen.initialText
                                         )
                                     }
                                 }

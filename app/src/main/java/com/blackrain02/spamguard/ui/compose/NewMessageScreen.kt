@@ -47,12 +47,13 @@ import kotlinx.coroutines.launch
 fun NewMessageScreen(
     smsRepository: SmsRepository,
     onBack: () -> Unit,
-    onNavigateToChat: (Long, String, String?) -> Unit
+    onNavigateToChat: (Long, String, String?) -> Unit,
+    initialText: String = ""
 ) {
     val context = LocalContext.current
     var recipients by remember { mutableStateOf<List<ContactItem>>(emptyList()) }
     var recipientQuery by remember { mutableStateOf("") }
-    var inputText by remember { mutableStateOf("") }
+    var inputText by remember(initialText) { mutableStateOf(initialText) }
     var isSending by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 

@@ -87,6 +87,13 @@ class AppStrings(val lang: AppLanguage) {
     val textCopied = if (isFa) "متن با موفقیت کپی شد" else "Text copied to clipboard"
     val allTextCopied = if (isFa) "کل متن پیام کپی شد" else "All text copied"
     val deleteThisMessage = if (isFa) "حذف این پیام" else "Delete This Message"
+    val forwardMessage = if (isFa) "فوروارد پیام" else "Forward Message"
+    val forwardTo = if (isFa) "فوروارد پیامک" else "Forward SMS"
+    val forwardSearchHint = if (isFa) "جستجوی مخاطب یا وارد کردن شماره..." else "Search contact or enter number..."
+    val forwardSuccess = if (isFa) "پیامک با موفقیت ارسال شد" else "Message forwarded successfully"
+    val forwardSendDirect = if (isFa) "ارسال مستقیم" else "Send Directly"
+    val forwardOpenInChat = if (isFa) "باز کردن در گفتگو" else "Open in Conversation"
+    val forwardDirectPrompt = if (isFa) "آیا می‌خواهید این پیامک مستقیماً ارسال شود؟" else "Send this message directly?"
     val messageOptions = if (isFa) "گزینه‌های پیام" else "Message Options"
 
     // Quarantine
@@ -105,6 +112,12 @@ class AppStrings(val lang: AppLanguage) {
     val quarantinedEmptyDesc = if (isFa) "هیچ پیامک مشکوک یا هرزنامه‌ای در قرنطینه وجود ندارد." else "No suspicious or spam messages in quarantine."
     fun messagesCount(count: Int) = if (isFa) "$count پیام" else "$count messages"
     val viewMessages = if (isFa) "مشاهده پیام‌ها" else "View Messages"
+    val spamRetentionTitle = if (isFa) "مدت نگهداری پیامک‌های اسپم" else "Spam Retention Period"
+    fun spamRetentionSubtitle(days: Int) = if (days <= 0) (if (isFa) "پیامک‌های هرزنامه هرگز خودکار حذف نمی‌شوند" else "Spam messages are never auto-deleted") else (if (isFa) "حذف خودکار پیامک‌های اسپم پس از $days روز" else "Auto-delete spam messages after $days days")
+    fun spamRetentionDays(days: Int) = if (days <= 0) (if (isFa) "هرگز حذف نشود" else "Never delete") else (if (isFa) "$days روز" else "$days days")
+    val spamRetentionDialogTitle = if (isFa) "تنظیم زمان پاکسازی خودکار هرزنامه‌ها" else "Spam Auto-Delete Schedule"
+    val spamRetentionCustomDays = if (isFa) "تعداد روز دلخواه:" else "Custom days:"
+    val spamRetentionSaved = if (isFa) "تنظیمات پاکسازی هرزنامه‌ها ذخیره شد" else "Spam retention policy updated"
 
     // Smart Features (Finance, Events, Smart Reply)
     val financialDashboard = if (isFa) "مدیریت مالی و تراکنش‌های بانکی" else "Financial & Expense Dashboard"

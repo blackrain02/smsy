@@ -64,6 +64,7 @@ import com.blackrain02.spamguard.data.repository.SpamRepository
 import com.blackrain02.spamguard.data.repository.TemplateRepository
 import com.blackrain02.spamguard.ui.security.PinDialog
 import com.blackrain02.spamguard.ui.security.PinDialogMode
+import com.blackrain02.spamguard.ui.quarantine.SpamRetentionDialog
 import com.blackrain02.spamguard.ui.theme.BubblePalette
 import com.blackrain02.spamguard.ui.theme.ThemeMode
 import com.blackrain02.spamguard.ui.theme.AppLanguage
@@ -173,6 +174,8 @@ fun ConversationListScreen(
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showBlocklistDialog by remember { mutableStateOf(false) }
     var showTemplatesDialog by remember { mutableStateOf(false) }
+    var showSpamRetentionDialog by remember { mutableStateOf(false) }
+    var spamRetentionDays by remember { mutableIntStateOf(spamRepository.getRetentionDays()) }
     val securityRepo = remember { smsRepository.securityRepository }
     val bankRepo = remember { BankTransactionRepository(context) }
     val bankSenderRepo = remember { BankSenderRepository(context) }
@@ -1498,6 +1501,29 @@ fun ConversationListScreen(
                     }
                 }
 
+                // ۹. مدت نگهداری و پاکسازی خودکار هرزنامه‌ها
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showSettingsSheet = false
+                            showSpamRetentionDialog = true
+                        }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(strings.spamRetentionTitle, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            strings.spamRetentionSubtitle(spamRetentionDays),
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
                 // ۹. امنیت، حریم خصوصی و رمز عبور (PIN)
                 Text(strings.securitySettings, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(6.dp))
@@ -1706,6 +1732,28 @@ fun ConversationListScreen(
                 }
             }
         }
+    }
+
+    // دیالوگ تنظیم دوره نگهداری پیامک‌های اسپم
+    if (showSpamRetentionDialog) {
+        SpamRetentionDialog(
+            currentDays = spamRetentionDays,
+            onDismiss = { showSpamRetentionDialog = false },
+            onSaveDays = { newDays ->
+                showSpamRetentionDialog = false
+                spamRetentionDays = newDays
+                spamRepository.setRetentionDays(newDays)
+                scope.launch {
+                    val removed = spamRepository.autoCleanExpiredSpam()
+                    val msg = if (removed > 0) {
+                        "${strings.spamRetentionSaved} ($removed ${strings.messagesCount(removed)})"
+                    } else {
+                        strings.spamRetentionSaved
+                    }
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
     }
 
     // شیت مدیریت فهرست سیاه قطعی

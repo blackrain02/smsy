@@ -60,6 +60,12 @@ fun QuarantineScreen(
     var showClearAllDialog by remember { mutableStateOf(false) }
     var senderToDelete by remember { mutableStateOf<SpamSenderGroup?>(null) }
     var selectedGroupDetails by remember { mutableStateOf<SpamSenderGroup?>(null) }
+    var retentionDays by remember { mutableIntStateOf(spamRepository.getRetentionDays()) }
+    var showRetentionDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        spamRepository.autoCleanExpiredSpam()
+    }
 
     // تجمیع پیامک‌های هرزنامه به تفکیک سرشماره و جستجو
     val groupedSenders = remember(spamList, searchQuery) {
@@ -120,17 +126,26 @@ fun QuarantineScreen(
                                     fontSize = 17.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
-                                if (spamList.isNotEmpty()) {
-                                    Text(
-                                        text = strings.quarantinedSummary(groupedSenders.size, spamList.size),
-                                        fontSize = 11.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                                Text(
+                                    text = if (spamList.isNotEmpty()) {
+                                        "${strings.quarantinedSummary(groupedSenders.size, spamList.size)} • ${strings.spamRetentionDays(retentionDays)}"
+                                    } else {
+                                        strings.spamRetentionSubtitle(retentionDays)
+                                    },
+                                    fontSize = 11.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     },
                     actions = {
+                        IconButton(onClick = { showRetentionDialog = true }) {
+                            Icon(
+                                Icons.Default.Schedule,
+                                contentDescription = strings.spamRetentionTitle,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         if (spamList.isNotEmpty()) {
                             IconButton(onClick = { showClearAllDialog = true }) {
                                 Icon(
@@ -510,6 +525,28 @@ fun QuarantineScreen(
                 Spacer(modifier = Modifier.height(12.dp))
             }
         }
+    }
+
+    // دیالوگ تنظیم دوره نگهداری پیامک‌های اسپم
+    if (showRetentionDialog) {
+        SpamRetentionDialog(
+            currentDays = retentionDays,
+            onDismiss = { showRetentionDialog = false },
+            onSaveDays = { newDays ->
+                showRetentionDialog = false
+                retentionDays = newDays
+                spamRepository.setRetentionDays(newDays)
+                scope.launch {
+                    val removed = spamRepository.autoCleanExpiredSpam()
+                    val msg = if (removed > 0) {
+                        "${strings.spamRetentionSaved} ($removed ${strings.messagesCount(removed)})"
+                    } else {
+                        strings.spamRetentionSaved
+                    }
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
     }
 
     // دیالوگ پاکسازی همه پیام‌های قرنطینه

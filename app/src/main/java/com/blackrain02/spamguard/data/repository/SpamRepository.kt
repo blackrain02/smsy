@@ -10,17 +10,44 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
 class SpamRepository(context: Context) {
+    companion object {
+        const val PREFS_SPAM = "spam_prefs"
+        const val KEY_RETENTION_DAYS = "spam_retention_days"
+        const val DEFAULT_RETENTION_DAYS = 7
+    }
+
+    private val spamPrefs = context.getSharedPreferences(PREFS_SPAM, Context.MODE_PRIVATE)
     private val db = AppDatabase.getInstance(context)
     private val spamDao = db.spamMessageDao()
     private val userWhitelistDao = db.userWhitelistDao()
     private val smsRepository = SmsRepository(context)
     private val feedbackEngine = AdaptiveFeedbackEngine.getInstance(context)
 
+    fun getRetentionDays(): Int {
+        return spamPrefs.getInt(KEY_RETENTION_DAYS, DEFAULT_RETENTION_DAYS)
+    }
+
+    fun setRetentionDays(days: Int) {
+        spamPrefs.edit().putInt(KEY_RETENTION_DAYS, days).apply()
+    }
+
+    suspend fun autoCleanExpiredSpam(): Int = withContext(Dispatchers.IO) {
+        val days = getRetentionDays()
+        if (days <= 0) return@withContext 0 // 0 means never delete
+        val cutoff = System.currentTimeMillis() - (days * 86_400_000L)
+        try {
+            spamDao.deleteOlderThan(cutoff)
+        } catch (e: Throwable) {
+            0
+        }
+    }
+
     fun getAllSpam(): Flow<List<SpamMessageEntity>> = spamDao.getAllSpam()
 
     fun getUnreadCount(): Flow<Int> = spamDao.getUnreadCount()
 
     suspend fun quarantine(sender: String, body: String, probability: Float): Long = withContext(Dispatchers.IO) {
+        autoCleanExpiredSpam()
         val entity = SpamMessageEntity(
             sender = sender,
             body = body,

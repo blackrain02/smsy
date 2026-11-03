@@ -26,6 +26,9 @@ interface SpamMessageDao {
     @Query("DELETE FROM spam_messages")
     suspend fun deleteAll()
 
+    @Query("DELETE FROM spam_messages WHERE timestamp < :cutoffTimestamp")
+    suspend fun deleteOlderThan(cutoffTimestamp: Long): Int
+
     @Query("SELECT COUNT(*) FROM spam_messages WHERE isRead = 0")
     fun getUnreadCount(): Flow<Int>
 }

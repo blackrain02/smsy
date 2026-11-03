@@ -29,6 +29,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Forward
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.blackrain02.spamguard.data.model.ContactItem
 import com.blackrain02.spamguard.data.model.Message
 import com.blackrain02.spamguard.data.repository.ScheduledMessageRepository
 import com.blackrain02.spamguard.data.repository.SmsRepository
@@ -90,6 +92,8 @@ fun ChatScreen(
     contactName: String?,
     smsRepository: SmsRepository,
     onBack: () -> Unit,
+    onForwardToNewMessage: ((String) -> Unit)? = null,
+    onNavigateToChat: ((Long, String, String?, String) -> Unit)? = null,
     mergedAddresses: Set<String> = emptySet(),
     initialText: String = "",
     highlightMessageId: Long? = null
@@ -108,6 +112,7 @@ fun ChatScreen(
     }
     var messageForAction by remember { mutableStateOf<Message?>(null) }
     var messageToSelectText by remember { mutableStateOf<String?>(null) }
+    var messageToForward by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
@@ -733,6 +738,20 @@ fun ChatScreen(
 
                     TextButton(
                         onClick = {
+                            messageToForward = target.body
+                            messageForAction = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(strings.forwardMessage, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    TextButton(
+                        onClick = {
                             scope.launch {
                                 smsRepository.deleteMessage(target.id)
                                 messages = smsRepository.getMessages(threadId, address, mergedAddresses)
@@ -824,6 +843,288 @@ fun ChatScreen(
                 }
             }
         )
+    }
+
+    // شیت فوروارد پیامک
+    if (messageToForward != null) {
+        val forwardBody = messageToForward!!
+        var forwardQuery by remember { mutableStateOf("") }
+        var isForwarding by remember { mutableStateOf(false) }
+        val suggestedContacts by produceState(initialValue = emptyList<ContactItem>(), key1 = forwardQuery) {
+            value = smsRepository.getContacts(forwardQuery)
+        }
+
+        ModalBottomSheet(
+            onDismissRequest = { messageToForward = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .navigationBarsPadding()
+            ) {
+                // هدر
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Forward,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = strings.forwardTo,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp
+                        )
+                    }
+                    IconButton(onClick = { messageToForward = null }) {
+                        Icon(Icons.Default.Close, contentDescription = strings.close)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // پیش‌نمایش متن پیام در حال فوروارد
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = forwardBody,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 12.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(12.dp),
+                        style = LocalTextStyle.current.copy(textDirection = TextDirection.Content)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // فیلد جستجوی مخاطب یا درج شماره مستقیم
+                OutlinedTextField(
+                    value = forwardQuery,
+                    onValueChange = { forwardQuery = it },
+                    placeholder = { Text(strings.forwardSearchHint, fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        val trimmed = forwardQuery.trim()
+                        if (trimmed.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    if (!isForwarding) {
+                                        isForwarding = true
+                                        scope.launch {
+                                            val ok = smsRepository.sendMessage(trimmed, forwardBody, currentSim?.subscriptionId)
+                                            isForwarding = false
+                                            if (ok) {
+                                                Toast.makeText(context, strings.forwardSuccess, Toast.LENGTH_SHORT).show()
+                                                messageToForward = null
+                                            } else {
+                                                Toast.makeText(context, if (strings.isFa) "خطا در ارسال پیامک" else "Failed to send", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // دکمه باز کردن صفحه پیام جدید جهت ویرایش یا ارسال به چندین مخاطب
+                if (onForwardToNewMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = {
+                            val text = forwardBody
+                            messageToForward = null
+                            onForwardToNewMessage(text)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (strings.isFa) "ویرایش و انتخاب چند مخاطب در پیام جدید" else "Edit or select multiple recipients", fontSize = 12.5.sp)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // فهرست مخاطبین پیشنهادی و شماره‌های مستقیم
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp)
+                ) {
+                    val cleanDigits = forwardQuery.filter { it.isDigit() || it == '+' }
+                    if (cleanDigits.length >= 3 && suggestedContacts.none { it.number.replace(" ", "") == cleanDigits }) {
+                        item(key = "manual_direct") {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp)
+                                    .clickable {
+                                        if (!isForwarding) {
+                                            isForwarding = true
+                                            scope.launch {
+                                                val ok = smsRepository.sendMessage(cleanDigits, forwardBody, currentSim?.subscriptionId)
+                                                isForwarding = false
+                                                if (ok) {
+                                                    Toast.makeText(context, strings.forwardSuccess, Toast.LENGTH_SHORT).show()
+                                                    messageToForward = null
+                                                } else {
+                                                    Toast.makeText(context, if (strings.isFa) "خطا در ارسال پیامک" else "Failed to send", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Phone, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(if (strings.isFa) "ارسال مستقیم به:" else "Send directly to:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(cleanDigits, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        }
+                                    }
+                                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+
+                    items(suggestedContacts, key = { it.number + it.name }) { contact ->
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp)
+                                .clickable {
+                                    if (onNavigateToChat != null) {
+                                        scope.launch {
+                                            val tId = smsRepository.getOrCreateThreadId(contact.number)
+                                            messageToForward = null
+                                            onNavigateToChat(tId, contact.number, contact.name, forwardBody)
+                                        }
+                                    } else {
+                                        if (!isForwarding) {
+                                            isForwarding = true
+                                            scope.launch {
+                                                val ok = smsRepository.sendMessage(contact.number, forwardBody, currentSim?.subscriptionId)
+                                                isForwarding = false
+                                                if (ok) {
+                                                    Toast.makeText(context, strings.forwardSuccess, Toast.LENGTH_SHORT).show()
+                                                    messageToForward = null
+                                                } else {
+                                                    Toast.makeText(context, if (strings.isFa) "خطا در ارسال پیامک" else "Failed to send", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = contact.name.take(1).uppercase(),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = contact.name,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 13.5.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = contact.number,
+                                            fontSize = 11.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        if (!isForwarding) {
+                                            isForwarding = true
+                                            scope.launch {
+                                                val ok = smsRepository.sendMessage(contact.number, forwardBody, currentSim?.subscriptionId)
+                                                isForwarding = false
+                                                if (ok) {
+                                                    Toast.makeText(context, strings.forwardSuccess, Toast.LENGTH_SHORT).show()
+                                                    messageToForward = null
+                                                } else {
+                                                    Toast.makeText(context, if (strings.isFa) "خطا در ارسال پیامک" else "Failed to send", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = strings.forwardSendDirect,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // دیالوگ ارسال زمان‌بندی‌شده
